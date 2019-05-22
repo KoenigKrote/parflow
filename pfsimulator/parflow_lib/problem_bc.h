@@ -73,6 +73,12 @@ typedef struct {
 #define BCStructPatchValues(bc_struct, p, s)  ((bc_struct)->values[p][s])
 
 /*--------------------------------------------------------------------------
+ * Patch Iterator macro:
+ *--------------------------------------------------------------------------*/
+#define ForBCStructNumPatches(ipatch, bc_struct) \
+	for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+
+/*--------------------------------------------------------------------------
  * Looping macro:
  *--------------------------------------------------------------------------*/
 

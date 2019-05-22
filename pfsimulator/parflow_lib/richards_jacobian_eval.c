@@ -489,7 +489,7 @@ void    RichardsJacobianEval(
 
     pp = SubvectorData(p_sub);
 
-    for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+    ForBCStructNumPatches(ipatch, bc_struct)
     {
       bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
 
@@ -800,7 +800,7 @@ void    RichardsJacobianEval(
       permyp = SubvectorData(permy_sub);
       permzp = SubvectorData(permz_sub);
 
-      for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+      ForBCStructNumPatches(ipatch, bc_struct)
       {
         BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
         {
@@ -1009,7 +1009,7 @@ void    RichardsJacobianEval(
     permyp = SubvectorData(permy_sub);
     permzp = SubvectorData(permz_sub);
 
-    for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+    ForBCStructNumPatches(ipatch, bc_struct)
     {
       bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
 
@@ -1413,7 +1413,7 @@ void    RichardsJacobianEval(
 
       top_dat = SubvectorData(top_sub);
 
-      for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+      ForBCStructNumPatches(ipatch, bc_struct)
       {
         switch (BCStructBCType(bc_struct, ipatch))
         {
@@ -1859,4 +1859,3 @@ int  RichardsJacobianEvalSizeOfTempData()
 
   return sz;
 }
-
