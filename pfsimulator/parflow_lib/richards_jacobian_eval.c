@@ -44,6 +44,29 @@
 #include "llnltyps.h"
 #include "assert.h"
 
+#include <time.h>
+
+#define GETTIME(tval)                                   \
+  (double)tval.tv_sec + (double)tval.tv_usec * 1.e-6;
+
+#define TIMER(itr, fp, body)                                            \
+  struct timeval tp;                                                    \
+  gettimeofday(&tp, NULL);                                              \
+  double start_time = GETTIME(tp);                                      \
+  fprintf(fp, "Iterations,Total,Average")                               \
+  for (int ii = 0; ii < itr; ii++)                                      \
+    body;                                                               \
+                                                                        \
+  gettimeofday(&tp, NULL);                                              \
+  double end_time = GETTIME(tp);                                        \
+  fprintf(fp, "%d,%lf,%lf\n",                                           \
+          itr, end_time - start_time, (end_time - start_time) / (double)(itr));
+
+
+
+
+
+
 /*---------------------------------------------------------------------
  * Define module structures
  *---------------------------------------------------------------------*/
@@ -263,6 +286,8 @@ void    RichardsJacobianEval(
 
   double      *cp_c, *wp_c, *ep_c, *sop_c, *np_c, *top_dat;  //DOK
 
+  int fdir2; // For use in BCStructLoopX macro
+
   int i, j, k, r, is;
   int ix, iy, iz;
   int nx, ny, nz;
@@ -393,6 +418,14 @@ void    RichardsJacobianEval(
                                                            density, gravity, problem_data,
                                                            CALCDER));
 
+  int jix, jiy, jiz, jsx, jsy, jsz, jnx, jny;
+  int pix, piy, piz, pnx, pny;
+  int dix, diy, diz, dnx, dny;
+  /*
+  FILE *fp;
+  fp = fopen("timer", "a");
+  TIMER(1000, fp, {
+  */
   ForSubgridI(is, GridSubgrids(grid))
   {
     subgrid = GridSubgrid(grid, is);
@@ -456,17 +489,25 @@ void    RichardsJacobianEval(
     pop = SubvectorData(po_sub);     // porosity
     ss = SubvectorData(ss_sub);     // sepcific storage
 
+    GetSubmatrixEltIndices(J_sub, jix, jiy, jiz, jsx, jsy, jsz, jnx, jny);
+    GetSubvectorEltIndices(po_sub, pix, piy, piz, pnx, pny);
+    GetSubvectorEltIndices(d_sub, dix, diy, diz, dnx, dny);
+
     GrGeomInLoop(i, j, k, gr_domain, r, ix, iy, iz, nx, ny, nz,
     {
-      im = SubmatrixEltIndex(J_sub, i, j, k);
-      ipo = SubvectorEltIndex(po_sub, i, j, k);
-      iv = SubvectorEltIndex(d_sub, i, j, k);
+      im = SubmatrixEltIndexX(i, j, k, jix, jiy, jiz, jsx, jsy, jsz, jnx, jny);
+      ipo = SubvectorEltIndexX(i, j, k, pix, piy, piz, pnx, pny);
+      iv = SubvectorEltIndexX(i, j, k, dix, diy, diz, dnx, dny);
+
       vol2 = vol * z_mult_dat[ipo];
       cp[im] += (sdp[iv] * dp[iv] + sp[iv] * ddp[iv])
                 * pop[ipo] * vol2 + ss[iv] * vol2 * (sdp[iv] * dp[iv] * pp[iv] + sp[iv] * ddp[iv] * pp[iv] + sp[iv] * dp[iv]); //sk start
     });
   }    /* End subgrid loop */
-
+  /*
+    });
+  fclose(fp);
+*/
   bc_struct = PFModuleInvokeType(BCPressureInvoke, bc_pressure,
                                  (problem_data, grid, gr_domain, time));
 
@@ -800,309 +841,125 @@ void    RichardsJacobianEval(
       permyp = SubvectorData(permy_sub);
       permzp = SubvectorData(permz_sub);
 
-      for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+      ForBCStructNumPatches(ipatch, bc_struct)
       {
-        BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
+        switch(BCStructBCType(bc_struct, ipatch))
         {
-          ip = SubvectorEltIndex(p_sub, i, j, k);
-          im = SubmatrixEltIndex(J_sub, i, j, k);
-
-          // SGS added this as prod was not being set to anything. Check with carol.
-          prod = rpp[ip] * dp[ip];
-
-          if (fdir[0])
-          {
-            switch (fdir[0])
+          case DirichletBC:
             {
-              case -1:
-                {
-                  diff = pp[ip - 1] - pp[ip];
-                  prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
-                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
-                          * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
-                          / viscosity;
-                  wp[im] = -coeff * diff
-                           * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
-                  break;
-                }
-
-              case 1:
-                {
-                  diff = pp[ip] - pp[ip + 1];
-                  prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
-                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
-                          * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
-                          / viscosity;
-                  ep[im] = coeff * diff
-                           * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
-                  break;
-                }
-            }         /* End switch on fdir[0] */
-          }           /* End if (fdir[0]) */
-
-          else if (fdir[1])
-          {
-            switch (fdir[1])
-            {
-              case -1:
-                {
-                  diff = pp[ip - sy_v] - pp[ip];
-                  prod_der = rpdp[ip - sy_v] * dp[ip - sy_v]
-                             + rpp[ip - sy_v] * ddp[ip - sy_v];
-                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
-                          * PMean(pp[ip - sy_v], pp[ip],
-                                  permyp[ip - sy_v], permyp[ip])
-                          / viscosity;
-                  sop[im] = -coeff * diff
-                            * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
-
-                  break;
-                }
-
-              case 1:
-                {
-                  diff = pp[ip] - pp[ip + sy_v];
-                  prod_der = rpdp[ip + sy_v] * dp[ip + sy_v]
-                             + rpp[ip + sy_v] * ddp[ip + sy_v];
-                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
-                          * PMean(pp[ip], pp[ip + sy_v],
-                                  permyp[ip], permyp[ip + sy_v])
-                          / viscosity;
-                  np[im] = -coeff * diff
-                           * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
-                  break;
-                }
-            }         /* End switch on fdir[1] */
-          }           /* End if (fdir[1]) */
-
-          else if (fdir[2])
-          {
-            switch (fdir[2])
-            {
-              case -1:
-                {
-                  lower_cond = (pp[ip - sz_v])
-                               - 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
-                               * dp[ip - sz_v] * gravity;
-                  upper_cond = (pp[ip]) + 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
-                               * dp[ip] * gravity;
-                  diff = lower_cond - upper_cond;
-                  prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
-                             + rpp[ip - sz_v] * ddp[ip - sz_v];
-                  prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
-                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
-                          * PMeanDZ(permzp[ip - sz_v], permzp[ip],
-                                    z_mult_dat[ip - sz_v], z_mult_dat[ip])
-                          / viscosity;
-                  lp[im] = -coeff *
-                           (diff * RPMean(lower_cond, upper_cond,
-                                          prod_der, 0.0)
-                            - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
-                            * RPMean(lower_cond, upper_cond, prod_lo, prod));
-
-                  break;
-                }
-
-              case 1:
-                {
-                  lower_cond = (pp[ip]) - 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;
-                  upper_cond = (pp[ip + sz_v])
-                               + 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v] * gravity;
-                  diff = lower_cond - upper_cond;
-                  prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
-                             + rpp[ip + sz_v] * ddp[ip + sz_v];
-                  prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
-                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                          * PMeanDZ(permzp[ip], permzp[ip + sz_v],
-                                    z_mult_dat[ip], z_mult_dat[ip + sz_v])
-                          / viscosity;
-                  up[im] = -coeff *
-                           (diff * RPMean(lower_cond, upper_cond,
-                                          0.0, prod_der)
-                            - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
-                            * RPMean(lower_cond, upper_cond, prod, prod_up));
-
-                  break;
-                }
-            }         /* End switch on fdir[2] */
-          }        /* End if (fdir[2]) */
-        });       /* End Patch Loop */
-      }           /* End ipatch loop */
-    }             /* End subgrid loop */
-  }                  /* End if symm_part */
-
-  ForSubgridI(is, GridSubgrids(grid))
-  {
-    subgrid = GridSubgrid(grid, is);
-
-    p_sub = VectorSubvector(pressure, is);
-    s_sub = VectorSubvector(saturation, is);
-    dd_sub = VectorSubvector(density_der, is);
-    rpd_sub = VectorSubvector(rel_perm_der, is);
-    d_sub = VectorSubvector(density, is);
-    rp_sub = VectorSubvector(rel_perm, is);
-    permx_sub = VectorSubvector(permeability_x, is);
-    permy_sub = VectorSubvector(permeability_y, is);
-    permz_sub = VectorSubvector(permeability_z, is);
-    J_sub = MatrixSubmatrix(J, is);
-
-    /* overland flow - DOK */
-    kw_sub = VectorSubvector(KW, is);
-    ke_sub = VectorSubvector(KE, is);
-    kn_sub = VectorSubvector(KN, is);
-    ks_sub = VectorSubvector(KS, is);
-    kwns_sub = VectorSubvector(KWns, is);
-    kens_sub = VectorSubvector(KEns, is);
-    knns_sub = VectorSubvector(KNns, is);
-    ksns_sub = VectorSubvector(KSns, is);
-
-    dx = SubgridDX(subgrid);
-    dy = SubgridDY(subgrid);
-    dz = SubgridDZ(subgrid);
-
-    /* @RMM added to provide access to zmult */
-    z_mult_sub = VectorSubvector(z_mult, is);
-    /* @RMM added to provide variable dz */
-    z_mult_dat = SubvectorData(z_mult_sub);
-
-    vol = dx * dy * dz;
-
-    ix = SubgridIX(subgrid);
-    iy = SubgridIY(subgrid);
-
-    ffx = dy * dz;
-    ffy = dx * dz;
-    ffz = dx * dy;
-
-    nx_v = SubvectorNX(p_sub);
-    ny_v = SubvectorNY(p_sub);
-    nz_v = SubvectorNZ(p_sub);
-
-    sy_v = nx_v;
-    sz_v = ny_v * nx_v;
-
-    cp = SubmatrixStencilData(J_sub, 0);
-    wp = SubmatrixStencilData(J_sub, 1);
-    ep = SubmatrixStencilData(J_sub, 2);
-    sop = SubmatrixStencilData(J_sub, 3);
-    np = SubmatrixStencilData(J_sub, 4);
-    lp = SubmatrixStencilData(J_sub, 5);
-    up = SubmatrixStencilData(J_sub, 6);
-
-    /* overland flow contribution */
-    kw_der = SubvectorData(kw_sub);
-    ke_der = SubvectorData(ke_sub);
-    kn_der = SubvectorData(kn_sub);
-    ks_der = SubvectorData(ks_sub);
-    kwns_der = SubvectorData(kwns_sub);
-    kens_der = SubvectorData(kens_sub);
-    knns_der = SubvectorData(knns_sub);
-    ksns_der = SubvectorData(ksns_sub);
-
-    pp = SubvectorData(p_sub);
-    sp = SubvectorData(s_sub);
-    ddp = SubvectorData(dd_sub);
-    rpdp = SubvectorData(rpd_sub);
-    dp = SubvectorData(d_sub);
-    rpp = SubvectorData(rp_sub);
-    permxp = SubvectorData(permx_sub);
-    permyp = SubvectorData(permy_sub);
-    permzp = SubvectorData(permz_sub);
-
-    for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
-    {
-      bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
-
-      switch (BCStructBCType(bc_struct, ipatch))
-      {
-        case DirichletBC:
-        {
-          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-          {
-            ip = SubvectorEltIndex(p_sub, i, j, k);
-
-            value = bc_patch_values[ival];
-
-            PFModuleInvokeType(PhaseDensityInvoke, density_module,
-                               (0, NULL, NULL, &value, &den_d, CALCFCN));
-            PFModuleInvokeType(PhaseDensityInvoke, density_module,
-                               (0, NULL, NULL, &value, &dend_d, CALCDER));
-
-            ip = SubvectorEltIndex(p_sub, i, j, k);
-            im = SubmatrixEltIndex(J_sub, i, j, k);
-
-            prod = rpp[ip] * dp[ip];
-            prod_der = rpdp[ip] * dp[ip] + rpp[ip] * ddp[ip];
-
-            if (fdir[0])
-            {
-              coeff = dt * ffx * z_mult_dat[ip] * (2.0 / dx) * permxp[ip] / viscosity;
-
-              switch (fdir[0])
+              BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
               {
-                case -1:
-                  {
+                value = bc_patch_values[ival];
+
+                PFModuleInvokeType(PhaseDensityInvoke, density_module,
+                                   (0, NULL, NULL, &value, &den_d, CALCFCN));
+                PFModuleInvokeType(PhaseDensityInvoke, density_module,
+                                   (0, NULL, NULL, &value, &dend_d, CALCDER));
+
+                ip = SubvectorEltIndex(p_sub, i, j, k);
+                im = SubmatrixEltIndex(J_sub, i, j, k);
+
+                // SGS added this as prod was not being set to anything. Check with carol.
+                prod = rpp[ip] * dp[ip];
+                prod_der = rpdp[ip] * dp[ip] + rpp[ip] * ddp[ip];
+
+                switch (fdir2) {
+                  case GrGeomOctreeFaceL: // fdir[0] == -1
+                    diff = pp[ip - 1] - pp[ip];
+                    prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
+                    coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                      * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
+                      / viscosity;
+                    wp[im] = -coeff * diff
+                      * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
+
                     op = wp;
+                    coeff = dt * ffx * z_mult_dat[ip] * (2.0 / dx) * permxp[ip] / viscosity;
                     prod_val = rpp[ip - 1] * den_d;
                     diff = value - pp[ip];
                     o_temp = coeff
-                             * (diff * RPMean(value, pp[ip], 0.0, prod_der)
-                                - RPMean(value, pp[ip], prod_val, prod));
+                      * (diff * RPMean(value, pp[ip], 0.0, prod_der)
+                         - RPMean(value, pp[ip], prod_val, prod));
                     break;
-                  }
 
-                case 1:
-                  {
+                  case GrGeomOctreeFaceR: // fdir[0] == 1
+                    diff = pp[ip] - pp[ip + 1];
+                    prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
+                    coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                      * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                      / viscosity;
+                    ep[im] = coeff * diff
+                      * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
+
                     op = ep;
+                    coeff = dt * ffx * z_mult_dat[ip] * (2.0 / dx) * permxp[ip] / viscosity;
                     prod_val = rpp[ip + 1] * den_d;
                     diff = pp[ip] - value;
                     o_temp = -coeff
-                             * (diff * RPMean(pp[ip], value, prod_der, 0.0)
-                                + RPMean(pp[ip], value, prod, prod_val));
+                      * (diff * RPMean(pp[ip], value, prod_der, 0.0)
+                         + RPMean(pp[ip], value, prod, prod_val));
                     break;
-                  }
-              }          /* End switch on fdir[0] */
-            }            /* End if (fdir[0]) */
 
-            else if (fdir[1])
-            {
-              coeff = dt * ffy * z_mult_dat[ip] * (2.0 / dy) * permyp[ip] / viscosity;
+                  case GrGeomOctreeFaceD: // fdir[1] == -1
+                    diff = pp[ip - sy_v] - pp[ip];
+                    prod_der = rpdp[ip - sy_v] * dp[ip - sy_v] + rpp[ip - sy_v] * ddp[ip - sy_v];
+                    coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                      * PMean(pp[ip - sy_v], pp[ip], permyp[ip - sy_v], permyp[ip])
+                      / viscosity;
+                    sop[im] = -coeff * diff
+                      * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
 
-              switch (fdir[1])
-              {
-                case -1:
-                  {
                     op = sop;
+                    coeff = dt * ffy * z_mult_dat[ip] * (2.0 / dy) * permyp[ip] / viscosity;
                     prod_val = rpp[ip - sy_v] * den_d;
                     diff = value - pp[ip];
                     o_temp = coeff
-                             * (diff * RPMean(value, pp[ip], 0.0, prod_der)
-                                - RPMean(value, pp[ip], prod_val, prod));
+                      * (diff * RPMean(value, pp[ip], 0.0, prod_der)
+                         - RPMean(value, pp[ip], prod_val, prod));
                     break;
-                  }
 
-                case 1:
-                  {
+                  case GrGeomOctreeFaceU: // fdir[1] == 1
+                    diff = pp[ip] - pp[ip + sy_v];
+                    prod_der = rpdp[ip + sy_v] * dp[ip + sy_v] + rpp[ip + sy_v] * ddp[ip + sy_v];
+                    coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                      * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                      / viscosity;
+                    np[im] = -coeff * diff
+                      * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
+
                     op = np;
+                    coeff = dt * ffy * z_mult_dat[ip] * (2.0 / dy) * permyp[ip] / viscosity;
                     prod_val = rpp[ip + sy_v] * den_d;
                     diff = pp[ip] - value;
                     o_temp = -coeff
-                             * (diff * RPMean(pp[ip], value, prod_der, 0.0)
-                                + RPMean(pp[ip], value, prod, prod_val));
+                      * (diff * RPMean(pp[ip], value, prod_der, 0.0)
+                         + RPMean(pp[ip], value, prod, prod_val));
                     break;
-                  }
-              }          /* End switch on fdir[1] */
-            }            /* End if (fdir[1]) */
 
-            else if (fdir[2])
-            {
-              coeff = dt * ffz * (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]))) * permzp[ip] / viscosity;
+                  case GrGeomOctreeFaceB: // fdir[2] == -1
+                    lower_cond = (pp[ip - sz_v])- 0.5 * dz
+                      * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                      * dp[ip - sz_v] * gravity;
+                    upper_cond = (pp[ip]) + 0.5 * dz
+                      * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                      * dp[ip] * gravity;
+                    diff = lower_cond - upper_cond;
+                    prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
+                      + rpp[ip - sz_v] * ddp[ip - sz_v];
+                    prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
+                    coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
+                      * PMeanDZ(permzp[ip - sz_v], permzp[ip],
+                                z_mult_dat[ip - sz_v], z_mult_dat[ip])
+                      / viscosity;
+                    lp[im] = -coeff *
+                      (diff * RPMean(lower_cond, upper_cond,
+                                     prod_der, 0.0)
+                       - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
+                       * RPMean(lower_cond, upper_cond, prod_lo, prod));
 
-              switch (fdir[2])
-              {
-                case -1:
-                  {
                     op = lp;
+                    coeff = dt * ffz * (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                      * permzp[ip] / viscosity;
                     prod_val = rpp[ip - sz_v] * den_d;
 
                     lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity;
@@ -1110,15 +967,931 @@ void    RichardsJacobianEval(
                     diff = lower_cond - upper_cond;
 
                     o_temp = coeff
-                             * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)
-                                + ((-1.0 - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])
-                                   * RPMean(lower_cond, upper_cond, prod_val, prod)));
+                      * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)
+                         + ((-1.0 - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])
+                            * RPMean(lower_cond, upper_cond, prod_val, prod)));
                     break;
-                  }
 
-                case 1:
+                  case GrGeomOctreeFaceF: // fdir[2] == 1
+                    lower_cond = (pp[ip]) - 0.5 * dz
+                      * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip]
+                      * gravity;
+                    upper_cond = (pp[ip + sz_v]) + 0.5 * dz
+                      * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v]
+                      * gravity;
+                    diff = lower_cond - upper_cond;
+                    prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
+                      + rpp[ip + sz_v] * ddp[ip + sz_v];
+                    prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
+                    coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                      * PMeanDZ(permzp[ip], permzp[ip + sz_v],
+                                z_mult_dat[ip], z_mult_dat[ip + sz_v])
+                      / viscosity;
+                    up[im] = -coeff *
+                      (diff * RPMean(lower_cond, upper_cond,
+                                     0.0, prod_der)
+                       - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                       * RPMean(lower_cond, upper_cond, prod, prod_up));
+
+                    op = lp;
+                    coeff = dt * ffz * (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                      * permzp[ip] / viscosity;
+                    prod_val = rpp[ip - sz_v] * den_d;
+
+                    lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity;
+                    upper_cond = (pp[ip]) + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity;
+                    diff = lower_cond - upper_cond;
+
+                    o_temp = coeff
+                      * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)
+                         + ((-1.0 - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])
+                            * RPMean(lower_cond, upper_cond, prod_val, prod)));
+                    break;
+
+                }
+
+                cp[im] += op[im];
+                cp[im] -= o_temp;
+                op[im] = 0.0;
+              });
+            }
+
+          case FluxBC:
+            BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+            {
+              ip = SubvectorEltIndex(p_sub, i, j, k);
+              im = SubmatrixEltIndex(J_sub, i, j, k);
+
+              // SGS added this as prod was not being set to anything. Check with carol.
+              prod = rpp[ip] * dp[ip];
+
+              switch (fdir2) {
+                case GrGeomOctreeFaceL: // fdir[0] == -1
+                  diff = pp[ip - 1] - pp[ip];
+                  prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
+                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                    * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
+                    / viscosity;
+                  wp[im] = -coeff * diff
+                    * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
+
+                  op = wp;
+                  break;
+
+                case GrGeomOctreeFaceR: // fdir[0] == 1
+                  diff = pp[ip] - pp[ip + 1];
+                  prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
+                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                    * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                    / viscosity;
+                  ep[im] = coeff * diff
+                    * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
+
+                  op = ep;
+                  break;
+
+                case GrGeomOctreeFaceD: // fdir[1] == -1
+                  diff = pp[ip - sy_v] - pp[ip];
+                  prod_der = rpdp[ip - sy_v] * dp[ip - sy_v] + rpp[ip - sy_v] * ddp[ip - sy_v];
+                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                    * PMean(pp[ip - sy_v], pp[ip], permyp[ip - sy_v], permyp[ip])
+                    / viscosity;
+                  sop[im] = -coeff * diff
+                    * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
+
+                  op = sop;
+                  break;
+
+                case GrGeomOctreeFaceU: // fdir[1] == 1
+                  diff = pp[ip] - pp[ip + sy_v];
+                  prod_der = rpdp[ip + sy_v] * dp[ip + sy_v] + rpp[ip + sy_v] * ddp[ip + sy_v];
+                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                    * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                    / viscosity;
+                  np[im] = -coeff * diff
+                    * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
+
+                  op = np;
+                  break;
+
+
+                case GrGeomOctreeFaceB: // fdir[2] == -1
+                  lower_cond = (pp[ip - sz_v])- 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                    * dp[ip - sz_v] * gravity;
+                  upper_cond = (pp[ip]) + 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                    * dp[ip] * gravity;
+                  diff = lower_cond - upper_cond;
+                  prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
+                    + rpp[ip - sz_v] * ddp[ip - sz_v];
+                  prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
+                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
+                    * PMeanDZ(permzp[ip - sz_v], permzp[ip],
+                              z_mult_dat[ip - sz_v], z_mult_dat[ip])
+                    / viscosity;
+                  lp[im] = -coeff *
+                    (diff * RPMean(lower_cond, upper_cond,
+                                   prod_der, 0.0)
+                     - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
+                     * RPMean(lower_cond, upper_cond, prod_lo, prod));
+
+                  op = lp;
+                  break;
+
+                case GrGeomOctreeFaceF: // fdir[2] == 1
+                  lower_cond = (pp[ip]) - 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip]
+                    * gravity;
+                  upper_cond = (pp[ip + sz_v]) + 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v]
+                    * gravity;
+                  diff = lower_cond - upper_cond;
+                  prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
+                    + rpp[ip + sz_v] * ddp[ip + sz_v];
+                  prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
+                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                    * PMeanDZ(permzp[ip], permzp[ip + sz_v],
+                              z_mult_dat[ip], z_mult_dat[ip + sz_v])
+                    / viscosity;
+                  up[im] = -coeff *
+                    (diff * RPMean(lower_cond, upper_cond,
+                                   0.0, prod_der)
+                     - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                     * RPMean(lower_cond, upper_cond, prod, prod_up));
+
+                  op = up;
+                  break;
+
+              }
+              cp[im] += op[im];
+              op[im] = 0.0;
+            });
+
+          case OverlandBC:
+            switch (public_xtra->type)
+            {
+              case no_nonlinear_jacobian:
+              case not_set:
+                {
+                  BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
                   {
+                    ip = SubvectorEltIndex(p_sub, i, j, k);
+                    im = SubmatrixEltIndex(J_sub, i, j, k);
+
+                    // SGS added this as prod was not being set to anything. Check with carol.
+                    prod = rpp[ip] * dp[ip];
+
+                    switch (fdir2) {
+                      case GrGeomOctreeFaceL: // fdir[0] == -1
+                        diff = pp[ip - 1] - pp[ip];
+                        prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
+                        coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                          * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
+                          / viscosity;
+                        wp[im] = -coeff * diff
+                          * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
+
+                        op = wp;
+                        break;
+
+                      case GrGeomOctreeFaceR: // fdir[0] == 1
+                        diff = pp[ip] - pp[ip + 1];
+                        prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
+                        coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                          * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                          / viscosity;
+                        ep[im] = coeff * diff
+                          * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
+
+                        op = ep;
+                        break;
+
+                      case GrGeomOctreeFaceD: // fdir[1] == -1
+                        diff = pp[ip - sy_v] - pp[ip];
+                        prod_der = rpdp[ip - sy_v] * dp[ip - sy_v] + rpp[ip - sy_v] * ddp[ip - sy_v];
+                        coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                          * PMean(pp[ip - sy_v], pp[ip], permyp[ip - sy_v], permyp[ip])
+                          / viscosity;
+                        sop[im] = -coeff * diff
+                          * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
+
+                        op = sop;
+                        break;
+
+                      case GrGeomOctreeFaceU: // fdir[1] == 1
+                        diff = pp[ip] - pp[ip + sy_v];
+                        prod_der = rpdp[ip + sy_v] * dp[ip + sy_v] + rpp[ip + sy_v] * ddp[ip + sy_v];
+                        coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                          * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                          / viscosity;
+                        np[im] = -coeff * diff
+                          * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
+
+                        op = np;
+                        break;
+
+
+                      case GrGeomOctreeFaceB: // fdir[2] == -1
+                        lower_cond = (pp[ip - sz_v])- 0.5 * dz
+                          * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                          * dp[ip - sz_v] * gravity;
+                        upper_cond = (pp[ip]) + 0.5 * dz
+                          * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                          * dp[ip] * gravity;
+                        diff = lower_cond - upper_cond;
+                        prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
+                          + rpp[ip - sz_v] * ddp[ip - sz_v];
+                        prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
+                        coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
+                          * PMeanDZ(permzp[ip - sz_v], permzp[ip],
+                                    z_mult_dat[ip - sz_v], z_mult_dat[ip])
+                          / viscosity;
+                        lp[im] = -coeff *
+                          (diff * RPMean(lower_cond, upper_cond,
+                                         prod_der, 0.0)
+                           - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
+                           * RPMean(lower_cond, upper_cond, prod_lo, prod));
+
+                        op = lp;
+                        break;
+
+                      case GrGeomOctreeFaceF: // fdir[2] == 1
+                        lower_cond = (pp[ip]) - 0.5 * dz
+                          * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip]
+                          * gravity;
+                        upper_cond = (pp[ip + sz_v]) + 0.5 * dz
+                          * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v]
+                          * gravity;
+                        diff = lower_cond - upper_cond;
+                        prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
+                          + rpp[ip + sz_v] * ddp[ip + sz_v];
+                        prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
+                        coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                          * PMeanDZ(permzp[ip], permzp[ip + sz_v],
+                                    z_mult_dat[ip], z_mult_dat[ip + sz_v])
+                          / viscosity;
+                        up[im] = -coeff *
+                          (diff * RPMean(lower_cond, upper_cond,
+                                         0.0, prod_der)
+                           - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                           * RPMean(lower_cond, upper_cond, prod, prod_up));
+
+                        op = up;
+                        if (!ovlnd_flag && pp[ip] > 0.0)
+                        {
+                          ovlnd_flag = 1;
+                        }
+                        break;
+                    }
+
+                    cp[im] += op[im];
+                    op[im] = 0.0;
+                  });
+                  {
+                    assert(1);
+                  }
+                }
+                break;
+
+
+              case simple:
+                BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+            {
+              ip = SubvectorEltIndex(p_sub, i, j, k);
+              im = SubmatrixEltIndex(J_sub, i, j, k);
+
+              // SGS added this as prod was not being set to anything. Check with carol.
+              prod = rpp[ip] * dp[ip];
+
+              switch (fdir2) {
+                case GrGeomOctreeFaceL: // fdir[0] == -1
+                  diff = pp[ip - 1] - pp[ip];
+                  prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
+                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                    * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
+                    / viscosity;
+                  wp[im] = -coeff * diff
+                    * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
+
+                  op = wp;
+                  break;
+
+                case GrGeomOctreeFaceR: // fdir[0] == 1
+                  diff = pp[ip] - pp[ip + 1];
+                  prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
+                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                    * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                    / viscosity;
+                  ep[im] = coeff * diff
+                    * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
+
+                  op = ep;
+                  break;
+
+                case GrGeomOctreeFaceD: // fdir[1] == -1
+                  diff = pp[ip - sy_v] - pp[ip];
+                  prod_der = rpdp[ip - sy_v] * dp[ip - sy_v] + rpp[ip - sy_v] * ddp[ip - sy_v];
+                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                    * PMean(pp[ip - sy_v], pp[ip], permyp[ip - sy_v], permyp[ip])
+                    / viscosity;
+                  sop[im] = -coeff * diff
+                    * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
+
+                  op = sop;
+                  break;
+
+                case GrGeomOctreeFaceU: // fdir[1] == 1
+                  diff = pp[ip] - pp[ip + sy_v];
+                  prod_der = rpdp[ip + sy_v] * dp[ip + sy_v] + rpp[ip + sy_v] * ddp[ip + sy_v];
+                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                    * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                    / viscosity;
+                  np[im] = -coeff * diff
+                    * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
+
+                  op = np;
+                  break;
+
+
+                case GrGeomOctreeFaceB: // fdir[2] == -1
+                  lower_cond = (pp[ip - sz_v])- 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                    * dp[ip - sz_v] * gravity;
+                  upper_cond = (pp[ip]) + 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                    * dp[ip] * gravity;
+                  diff = lower_cond - upper_cond;
+                  prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
+                    + rpp[ip - sz_v] * ddp[ip - sz_v];
+                  prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
+                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
+                    * PMeanDZ(permzp[ip - sz_v], permzp[ip],
+                              z_mult_dat[ip - sz_v], z_mult_dat[ip])
+                    / viscosity;
+                  lp[im] = -coeff *
+                    (diff * RPMean(lower_cond, upper_cond,
+                                   prod_der, 0.0)
+                     - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
+                     * RPMean(lower_cond, upper_cond, prod_lo, prod));
+
+                  op = lp;
+                  break;
+
+                case GrGeomOctreeFaceF: // fdir[2] == 1
+                  lower_cond = (pp[ip]) - 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip]
+                    * gravity;
+                  upper_cond = (pp[ip + sz_v]) + 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v]
+                    * gravity;
+                  diff = lower_cond - upper_cond;
+                  prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
+                    + rpp[ip + sz_v] * ddp[ip + sz_v];
+                  prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
+                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                    * PMeanDZ(permzp[ip], permzp[ip + sz_v],
+                              z_mult_dat[ip], z_mult_dat[ip + sz_v])
+                    / viscosity;
+                  up[im] = -coeff *
+                    (diff * RPMean(lower_cond, upper_cond,
+                                   0.0, prod_der)
+                     - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                     * RPMean(lower_cond, upper_cond, prod, prod_up));
+
+                  op = up;
+
+                  if (pp[ip] > 0.0) {
+                    cp[im] += (vol * z_mult_dat[ip])
+                      / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]))
+                      * (dt + 1);
+                    if (!ovlnd_flag) {
+                      ovlnd_flag = 1;
+                    }
+                  }
+                  break;
+
+              }
+              cp[im] += op[im];
+              op[im] = 0.0;
+            });
+
+              case overland_flow:
+                {
+                  if (overlandspinup == 1)
+                  {
+                    BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+                    {
+                      ip = SubvectorEltIndex(p_sub, i, j, k);
+                      im = SubmatrixEltIndex(J_sub, i, j, k);
+
+                      // SGS added this as prod was not being set to anything. Check with carol.
+                      prod = rpp[ip] * dp[ip];
+
+                      switch (fdir2) {
+                        case GrGeomOctreeFaceL: // fdir[0] == -1
+                          diff = pp[ip - 1] - pp[ip];
+                          prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
+                          coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                            * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
+                            / viscosity;
+                          wp[im] = -coeff * diff
+                            * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
+
+                          op = wp;
+                          break;
+
+                        case GrGeomOctreeFaceR: // fdir[0] == 1
+                          diff = pp[ip] - pp[ip + 1];
+                          prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
+                          coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                            * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                            / viscosity;
+                          ep[im] = coeff * diff
+                            * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
+
+                          op = ep;
+                          break;
+
+                        case GrGeomOctreeFaceD: // fdir[1] == -1
+                          diff = pp[ip - sy_v] - pp[ip];
+                          prod_der = rpdp[ip - sy_v] * dp[ip - sy_v] + rpp[ip - sy_v] * ddp[ip - sy_v];
+                          coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                            * PMean(pp[ip - sy_v], pp[ip], permyp[ip - sy_v], permyp[ip])
+                            / viscosity;
+                          sop[im] = -coeff * diff
+                            * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
+
+                          op = sop;
+                          break;
+
+                        case GrGeomOctreeFaceU: // fdir[1] == 1
+                          diff = pp[ip] - pp[ip + sy_v];
+                          prod_der = rpdp[ip + sy_v] * dp[ip + sy_v] + rpp[ip + sy_v] * ddp[ip + sy_v];
+                          coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                            * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                            / viscosity;
+                          np[im] = -coeff * diff
+                            * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
+
+                          op = np;
+                          break;
+
+
+                        case GrGeomOctreeFaceB: // fdir[2] == -1
+                          lower_cond = (pp[ip - sz_v])- 0.5 * dz
+                            * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                            * dp[ip - sz_v] * gravity;
+                          upper_cond = (pp[ip]) + 0.5 * dz
+                            * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                            * dp[ip] * gravity;
+                          diff = lower_cond - upper_cond;
+                          prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
+                            + rpp[ip - sz_v] * ddp[ip - sz_v];
+                          prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
+                          coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
+                            * PMeanDZ(permzp[ip - sz_v], permzp[ip],
+                                      z_mult_dat[ip - sz_v], z_mult_dat[ip])
+                            / viscosity;
+                          lp[im] = -coeff *
+                            (diff * RPMean(lower_cond, upper_cond,
+                                           prod_der, 0.0)
+                             - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
+                             * RPMean(lower_cond, upper_cond, prod_lo, prod));
+
+                          op = lp;
+                          break;
+
+                        case GrGeomOctreeFaceF: // fdir[2] == 1
+                          lower_cond = (pp[ip]) - 0.5 * dz
+                            * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip]
+                            * gravity;
+                          upper_cond = (pp[ip + sz_v]) + 0.5 * dz
+                            * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v]
+                            * gravity;
+                          diff = lower_cond - upper_cond;
+                          prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
+                            + rpp[ip + sz_v] * ddp[ip + sz_v];
+                          prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
+                          coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                            * PMeanDZ(permzp[ip], permzp[ip + sz_v],
+                                      z_mult_dat[ip], z_mult_dat[ip + sz_v])
+                            / viscosity;
+                          up[im] = -coeff *
+                            (diff * RPMean(lower_cond, upper_cond,
+                                           0.0, prod_der)
+                             - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                             * RPMean(lower_cond, upper_cond, prod, prod_up));
+
+                          op = up;
+
+                          vol = dx * dy * dz;
+                          if (pp[ip] > 0.0) {
+                            cp[im] += (vol / dz) * dt * (1.0 + 0.0);                     //LEC
+                          }
+                          break;
+
+                      }
+                      cp[im] += op[im];
+                      op[im] = 0.0;
+                    });
+                  } else {
+                    BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+                  {
+                    ip = SubvectorEltIndex(p_sub, i, j, k);
+                    im = SubmatrixEltIndex(J_sub, i, j, k);
+
+                    // SGS added this as prod was not being set to anything. Check with carol.
+                    prod = rpp[ip] * dp[ip];
+
+                    switch (fdir2) {
+                      case GrGeomOctreeFaceL: // fdir[0] == -1
+                        diff = pp[ip - 1] - pp[ip];
+                        prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
+                        coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                          * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
+                          / viscosity;
+                        wp[im] = -coeff * diff
+                          * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
+
+                        op = wp;
+                        break;
+
+                      case GrGeomOctreeFaceR: // fdir[0] == 1
+                        diff = pp[ip] - pp[ip + 1];
+                        prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
+                        coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                          * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                          / viscosity;
+                        ep[im] = coeff * diff
+                          * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
+
+                        op = ep;
+                        break;
+
+                      case GrGeomOctreeFaceD: // fdir[1] == -1
+                        diff = pp[ip - sy_v] - pp[ip];
+                        prod_der = rpdp[ip - sy_v] * dp[ip - sy_v] + rpp[ip - sy_v] * ddp[ip - sy_v];
+                        coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                          * PMean(pp[ip - sy_v], pp[ip], permyp[ip - sy_v], permyp[ip])
+                          / viscosity;
+                        sop[im] = -coeff * diff
+                          * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
+
+                        op = sop;
+                        break;
+
+                      case GrGeomOctreeFaceU: // fdir[1] == 1
+                        diff = pp[ip] - pp[ip + sy_v];
+                        prod_der = rpdp[ip + sy_v] * dp[ip + sy_v] + rpp[ip + sy_v] * ddp[ip + sy_v];
+                        coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                          * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                          / viscosity;
+                        np[im] = -coeff * diff
+                          * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
+
+                        op = np;
+                        break;
+
+
+                      case GrGeomOctreeFaceB: // fdir[2] == -1
+                        lower_cond = (pp[ip - sz_v])- 0.5 * dz
+                          * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                          * dp[ip - sz_v] * gravity;
+                        upper_cond = (pp[ip]) + 0.5 * dz
+                          * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                          * dp[ip] * gravity;
+                        diff = lower_cond - upper_cond;
+                        prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
+                          + rpp[ip - sz_v] * ddp[ip - sz_v];
+                        prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
+                        coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
+                          * PMeanDZ(permzp[ip - sz_v], permzp[ip],
+                                    z_mult_dat[ip - sz_v], z_mult_dat[ip])
+                          / viscosity;
+                        lp[im] = -coeff *
+                          (diff * RPMean(lower_cond, upper_cond,
+                                         prod_der, 0.0)
+                           - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
+                           * RPMean(lower_cond, upper_cond, prod_lo, prod));
+
+                        op = lp;
+                        break;
+
+                      case GrGeomOctreeFaceF: // fdir[2] == 1
+                        lower_cond = (pp[ip]) - 0.5 * dz
+                          * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip]
+                          * gravity;
+                        upper_cond = (pp[ip + sz_v]) + 0.5 * dz
+                          * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v]
+                          * gravity;
+                        diff = lower_cond - upper_cond;
+                        prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
+                          + rpp[ip + sz_v] * ddp[ip + sz_v];
+                        prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
+                        coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                          * PMeanDZ(permzp[ip], permzp[ip + sz_v],
+                                    z_mult_dat[ip], z_mult_dat[ip + sz_v])
+                          / viscosity;
+                        up[im] = -coeff *
+                          (diff * RPMean(lower_cond, upper_cond,
+                                         0.0, prod_der)
+                           - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                           * RPMean(lower_cond, upper_cond, prod, prod_up));
+
+                        op = up;
+                        if (!ovlnd_flag && pp[ip] > 0.0)
+                        {
+                          ovlnd_flag = 1;
+                        }
+                        break;
+                    }
+
+                    cp[im] += op[im];
+                    op[im] = 0.0;
+                  });
+                    if (diffusive == 0) {
+                      PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
+                                         (grid, is, bc_struct, ipatch, problem_data, pressure,
+                                          ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
+                    } else {
+                      PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff,
+                                         (grid, is, bc_struct, ipatch, problem_data, pressure,
+                                          ke_der, kw_der, kn_der, ks_der,
+                                          kens_der, kwns_der, knns_der, ksns_der, NULL, NULL, CALCDER));
+                    }
+                  }
+                }
+                break;
+
+            }
+
+
+
+          default:
+            BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+            {
+              ip = SubvectorEltIndex(p_sub, i, j, k);
+              im = SubmatrixEltIndex(J_sub, i, j, k);
+
+              // SGS added this as prod was not being set to anything. Check with carol.
+              prod = rpp[ip] * dp[ip];
+
+              switch (fdir2) {
+                case GrGeomOctreeFaceL: // fdir[0] == -1
+                  diff = pp[ip - 1] - pp[ip];
+                  prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
+                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                    * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
+                    / viscosity;
+                  wp[im] = -coeff * diff
+                    * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
+                  break;
+
+                case GrGeomOctreeFaceR: // fdir[0] == 1
+                  diff = pp[ip] - pp[ip + 1];
+                  prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
+                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
+                    * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                    / viscosity;
+                  ep[im] = coeff * diff
+                    * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
+
+                case GrGeomOctreeFaceD: // fdir[1] == -1
+                  diff = pp[ip - sy_v] - pp[ip];
+                  prod_der = rpdp[ip - sy_v] * dp[ip - sy_v] + rpp[ip - sy_v] * ddp[ip - sy_v];
+                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                    * PMean(pp[ip - sy_v], pp[ip], permyp[ip - sy_v], permyp[ip])
+                    / viscosity;
+                  sop[im] = -coeff * diff
+                    * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
+                  break;
+
+                case GrGeomOctreeFaceU: // fdir[1] == 1
+                  diff = pp[ip] - pp[ip + sy_v];
+                  prod_der = rpdp[ip + sy_v] * dp[ip + sy_v] + rpp[ip + sy_v] * ddp[ip + sy_v];
+                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
+                    * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                    / viscosity;
+                  np[im] = -coeff * diff
+                    * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
+
+                case GrGeomOctreeFaceB: // fdir[2] == -1
+                  lower_cond = (pp[ip - sz_v])- 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                    * dp[ip - sz_v] * gravity;
+                  upper_cond = (pp[ip]) + 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
+                    * dp[ip] * gravity;
+                  diff = lower_cond - upper_cond;
+                  prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
+                    + rpp[ip - sz_v] * ddp[ip - sz_v];
+                  prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
+                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
+                    * PMeanDZ(permzp[ip - sz_v], permzp[ip],
+                              z_mult_dat[ip - sz_v], z_mult_dat[ip])
+                    / viscosity;
+                  lp[im] = -coeff *
+                    (diff * RPMean(lower_cond, upper_cond,
+                                   prod_der, 0.0)
+                     - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
+                     * RPMean(lower_cond, upper_cond, prod_lo, prod));
+                  break;
+
+                case GrGeomOctreeFaceF: // fdir[2] == 1
+                  lower_cond = (pp[ip]) - 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip]
+                    * gravity;
+                  upper_cond = (pp[ip + sz_v]) + 0.5 * dz
+                    * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v]
+                    * gravity;
+                  diff = lower_cond - upper_cond;
+                  prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
+                    + rpp[ip + sz_v] * ddp[ip + sz_v];
+                  prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
+                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                    * PMeanDZ(permzp[ip], permzp[ip + sz_v],
+                              z_mult_dat[ip], z_mult_dat[ip + sz_v])
+                    / viscosity;
+                  up[im] = -coeff *
+                    (diff * RPMean(lower_cond, upper_cond,
+                                   0.0, prod_der)
+                     - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                     * RPMean(lower_cond, upper_cond, prod, prod_up));
+                  break;
+
+              }
+            });/* End switch on fdir2 */
+        };       /* End Patch Loop */
+      }           /* End ipatch loop */
+    }             /* End subgrid loop */
+  }                  /* End if symm_part */
+  else
+  {
+    ForSubgridI(is, GridSubgrids(grid))
+    {
+      subgrid = GridSubgrid(grid, is);
+
+      p_sub = VectorSubvector(pressure, is);
+      s_sub = VectorSubvector(saturation, is);
+      dd_sub = VectorSubvector(density_der, is);
+      rpd_sub = VectorSubvector(rel_perm_der, is);
+      d_sub = VectorSubvector(density, is);
+      rp_sub = VectorSubvector(rel_perm, is);
+      permx_sub = VectorSubvector(permeability_x, is);
+      permy_sub = VectorSubvector(permeability_y, is);
+      permz_sub = VectorSubvector(permeability_z, is);
+      J_sub = MatrixSubmatrix(J, is);
+
+      /* overland flow - DOK */
+      kw_sub = VectorSubvector(KW, is);
+      ke_sub = VectorSubvector(KE, is);
+      kn_sub = VectorSubvector(KN, is);
+      ks_sub = VectorSubvector(KS, is);
+      kwns_sub = VectorSubvector(KWns, is);
+      kens_sub = VectorSubvector(KEns, is);
+      knns_sub = VectorSubvector(KNns, is);
+      ksns_sub = VectorSubvector(KSns, is);
+
+      dx = SubgridDX(subgrid);
+      dy = SubgridDY(subgrid);
+      dz = SubgridDZ(subgrid);
+
+      /* @RMM added to provide access to zmult */
+      z_mult_sub = VectorSubvector(z_mult, is);
+      /* @RMM added to provide variable dz */
+      z_mult_dat = SubvectorData(z_mult_sub);
+
+      vol = dx * dy * dz;
+
+      ix = SubgridIX(subgrid);
+      iy = SubgridIY(subgrid);
+
+      ffx = dy * dz;
+      ffy = dx * dz;
+      ffz = dx * dy;
+
+      nx_v = SubvectorNX(p_sub);
+      ny_v = SubvectorNY(p_sub);
+      nz_v = SubvectorNZ(p_sub);
+
+      sy_v = nx_v;
+      sz_v = ny_v * nx_v;
+
+      cp = SubmatrixStencilData(J_sub, 0);
+      wp = SubmatrixStencilData(J_sub, 1);
+      ep = SubmatrixStencilData(J_sub, 2);
+      sop = SubmatrixStencilData(J_sub, 3);
+      np = SubmatrixStencilData(J_sub, 4);
+      lp = SubmatrixStencilData(J_sub, 5);
+      up = SubmatrixStencilData(J_sub, 6);
+
+      /* overland flow contribution */
+      kw_der = SubvectorData(kw_sub);
+      ke_der = SubvectorData(ke_sub);
+      kn_der = SubvectorData(kn_sub);
+      ks_der = SubvectorData(ks_sub);
+      kwns_der = SubvectorData(kwns_sub);
+      kens_der = SubvectorData(kens_sub);
+      knns_der = SubvectorData(knns_sub);
+      ksns_der = SubvectorData(ksns_sub);
+
+      pp = SubvectorData(p_sub);
+      sp = SubvectorData(s_sub);
+      ddp = SubvectorData(dd_sub);
+      rpdp = SubvectorData(rpd_sub);
+      dp = SubvectorData(d_sub);
+      rpp = SubvectorData(rp_sub);
+      permxp = SubvectorData(permx_sub);
+      permyp = SubvectorData(permy_sub);
+      permzp = SubvectorData(permz_sub);
+
+      ForBCStructNumPatches(ipatch, bc_struct)
+      {
+        bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
+
+        switch (BCStructBCType(bc_struct, ipatch))
+        {
+          case DirichletBC:
+            {
+              BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+              {
+                value = bc_patch_values[ival];
+
+                PFModuleInvokeType(PhaseDensityInvoke, density_module,
+                                   (0, NULL, NULL, &value, &den_d, CALCFCN));
+                PFModuleInvokeType(PhaseDensityInvoke, density_module,
+                                   (0, NULL, NULL, &value, &dend_d, CALCDER));
+
+                ip = SubvectorEltIndex(p_sub, i, j, k);
+                im = SubmatrixEltIndex(J_sub, i, j, k);
+
+                prod = rpp[ip] * dp[ip];
+                prod_der = rpdp[ip] * dp[ip] + rpp[ip] * ddp[ip];
+
+                switch(fdir2) {
+                  case GrGeomOctreeFaceL: // fdir[0] == -1
+                    op = wp;
+                    coeff = dt * ffx * z_mult_dat[ip] * (2.0 / dx) * permxp[ip] / viscosity;
+                    prod_val = rpp[ip - 1] * den_d;
+                    diff = value - pp[ip];
+                    o_temp = coeff
+                      * (diff * RPMean(value, pp[ip], 0.0, prod_der)
+                         - RPMean(value, pp[ip], prod_val, prod));
+                    break;
+
+                  case GrGeomOctreeFaceR: // fdir[0] == 1
+                    op = ep;
+                    coeff = dt * ffx * z_mult_dat[ip] * (2.0 / dx) * permxp[ip] / viscosity;
+                    prod_val = rpp[ip + 1] * den_d;
+                    diff = pp[ip] - value;
+                    o_temp = -coeff
+                      * (diff * RPMean(pp[ip], value, prod_der, 0.0)
+                         + RPMean(pp[ip], value, prod, prod_val));
+                    break;
+
+                  case GrGeomOctreeFaceD: // fdir[1] == -1
+                    op = sop;
+                    coeff = dt * ffy * z_mult_dat[ip] * (2.0 / dy) * permyp[ip] / viscosity;
+                    prod_val = rpp[ip - sy_v] * den_d;
+                    diff = value - pp[ip];
+                    o_temp = coeff
+                      * (diff * RPMean(value, pp[ip], 0.0, prod_der)
+                         - RPMean(value, pp[ip], prod_val, prod));
+                    break;
+
+
+                  case GrGeomOctreeFaceU: // fdir[1] == 1
+                    op = np;
+                    coeff = dt * ffy * z_mult_dat[ip] * (2.0 / dy) * permyp[ip] / viscosity;
+                    prod_val = rpp[ip + sy_v] * den_d;
+                    diff = pp[ip] - value;
+                    o_temp = -coeff
+                      * (diff * RPMean(pp[ip], value, prod_der, 0.0)
+                         + RPMean(pp[ip], value, prod, prod_val));
+                    break;
+
+
+                  case GrGeomOctreeFaceB: // fdir[2] == -1
+                    op = lp;
+                    coeff = dt * ffz * (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                      * permzp[ip] / viscosity;
+                    prod_val = rpp[ip - sz_v] * den_d;
+
+                    lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity;
+                    upper_cond = (pp[ip]) + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity;
+                    diff = lower_cond - upper_cond;
+
+                    o_temp = coeff
+                      * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)
+                         + ((-1.0 - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])
+                            * RPMean(lower_cond, upper_cond, prod_val, prod)));
+                    break;
+
+                  case GrGeomOctreeFaceF: // fdir[2] == 1
                     op = up;
+                    coeff = dt * ffz * (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                      * permzp[ip] / viscosity;
                     prod_val = rpp[ip + sz_v] * den_d;
 
                     lower_cond = (pp[ip]) - 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;
@@ -1126,174 +1899,216 @@ void    RichardsJacobianEval(
                     diff = lower_cond - upper_cond;
 
                     o_temp = -coeff
-                             * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
-                                + ((1.0 - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])
-                                   * RPMean(lower_cond, upper_cond, prod, prod_val)));
+                      * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
+                         + ((1.0 - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])
+                            * RPMean(lower_cond, upper_cond, prod, prod_val)));
                     break;
-                  }
-              }          /* End switch on fdir[2] */
-            }         /* End if (fdir[2]) */
-
-            cp[im] += op[im];
-            cp[im] -= o_temp;
-            op[im] = 0.0;
-          });
-
-          break;
-        }               /* End DirichletBC case */
-
-        case FluxBC:
-        {
-          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-          {
-            im = SubmatrixEltIndex(J_sub, i, j, k);
-
-            if (fdir[0] == -1)
-              op = wp;
-            if (fdir[0] == 1)
-              op = ep;
-            if (fdir[1] == -1)
-              op = sop;
-            if (fdir[1] == 1)
-              op = np;
-            if (fdir[2] == -1)
-              op = lp;
-            if (fdir[2] == 1)
-              op = up;
-
-            cp[im] += op[im];
-            op[im] = 0.0;
-          });
-
-          break;
-        }         /* End fluxbc case */
-
-        case OverlandBC:     //sk
-        {
-          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-          {
-            im = SubmatrixEltIndex(J_sub, i, j, k);
-
-            //remove contributions to this row corresponding to boundary
-            if (fdir[0] == -1)
-              op = wp;
-            else if (fdir[0] == 1)
-              op = ep;
-            else if (fdir[1] == -1)
-              op = sop;
-            else if (fdir[1] == 1)
-              op = np;
-            else if (fdir[2] == -1)
-              op = lp;
-            else       // (fdir[2] ==  1)
-            {
-              op = up;
-              /* check if overland flow kicks in */
-              if (!ovlnd_flag)
-              {
-                ip = SubvectorEltIndex(p_sub, i, j, k);
-                if ((pp[ip]) > 0.0)
-                {
-                  ovlnd_flag = 1;
                 }
-              }
-            }
 
-            cp[im] += op[im];
-            op[im] = 0.0;       //zero out entry in row of Jacobian
-          });
-
-          switch (public_xtra->type)
-          {
-            case no_nonlinear_jacobian:
-            case not_set:
-            {
-              assert(1);
-            }
-
-            case simple:
-            {
-              BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-              {
-                if (fdir[2] == 1)
-                {
-                  ip = SubvectorEltIndex(p_sub, i, j, k);
-                  io = SubvectorEltIndex(p_sub, i, j, 0);
-                  im = SubmatrixEltIndex(J_sub, i, j, k);
-
-                  if ((pp[ip]) > 0.0)
-                  {
-                    cp[im] += (vol * z_mult_dat[ip]) / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
-                  }
-                }
+                cp[im] += op[im];
+                cp[im] -= o_temp;
+                op[im] = 0.0;
               });
               break;
             }
+            /* End DirichletBC case */
 
-            case overland_flow:
+          case FluxBC:
             {
-              /* Get overland flow contributions - DOK*/
-              // SGS can we skip this invocation if !overland_flow?
-              //PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
-              //		(grid, is, bc_struct, ipatch, problem_data, pressure,
-              //		 ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
-
-              if (overlandspinup == 1)
+              BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
               {
-                /* add flux loss equal to excess head  that overwrites the prior overland flux */
-                BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-                {
-                  if (fdir[2] == 1)
-                  {
-                    ip = SubvectorEltIndex(p_sub, i, j, k);
-                    io = SubvectorEltIndex(p_sub, i, j, 0);
-                    im = SubmatrixEltIndex(J_sub, i, j, k);
-                    vol = dx * dy * dz;
+                im = SubmatrixEltIndex(J_sub, i, j, k);
 
-                    if ((pp[ip]) >= 0.0)
+                switch (fdir2)
+                {
+                  case 0:
+                    op = wp;
+                    break;
+                  case 1:
+                    op = ep;
+                    break;
+                  case 2:
+                    op = sop;
+                    break;
+                  case 3:
+                    op = np;
+                    break;
+                  case 4:
+                    op = lp;
+                    break;
+                  case 5:
+                    op = up;
+                    break;
+                }
+
+                cp[im] += op[im];
+                op[im] = 0.0;
+              });
+
+              break;
+            }         /* End fluxbc case */
+
+          case OverlandBC:     //sk
+            {
+              switch (public_xtra->type)
+              {
+                case no_nonlinear_jacobian:
+                case not_set:
+                {
+                  BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+                  {
+                    im = SubmatrixEltIndex(J_sub, i, j, k);
+
+                    //remove contributions to this row corresponding to boundary
+                    switch (fdir2) {
+                      case GrGeomOctreeFaceL:
+                        op = wp;
+                        break;
+                      case GrGeomOctreeFaceR:
+                        op = ep;
+                        break;
+                      case GrGeomOctreeFaceD:
+                        op = sop;
+                        break;
+                      case GrGeomOctreeFaceU:
+                        op = np;
+                        break;
+                      case GrGeomOctreeFaceB:
+                        op = lp;
+                        break;
+                      case GrGeomOctreeFaceF:
+                        op = up;
+                        if (!ovlnd_flag) {
+                          ip = SubvectorEltIndex(p_sub, i, j, k);
+                          if ((pp[ip]) > 0.0)
+                          {
+                            ovlnd_flag = 1;
+                          }
+                        }
+                        break;
+                    }
+                    cp[im] += op[im];
+                    op[im] = 0.0;       //zero out entry in row of Jacobian
+                  });
+                  {
+                    assert(1);
+                  }
+                  break;
+                }
+
+              case simple:
+                {
+                  BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+                  {
+                    im = SubmatrixEltIndex(J_sub, i, j, k);
+                    switch (fdir2) {
+                      case GrGeomOctreeFaceL:
+                        op = wp;
+                        break;
+                      case GrGeomOctreeFaceR:
+                        op = ep;
+                        break;
+                      case GrGeomOctreeFaceD:
+                        op = sop;
+                        break;
+                      case GrGeomOctreeFaceU:
+                        op = np;
+                        break;
+                      case GrGeomOctreeFaceB:
+                        op = lp;
+                        break;
+                      case GrGeomOctreeFaceF:
+                        op = up;
+
+                        ip = SubvectorEltIndex(p_sub, i, j, k);
+
+                        if ((pp[ip]) > 0.0) {
+                          cp[im] += (vol * z_mult_dat[ip])
+                            / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]))
+                            * (dt + 1);
+                          if (!ovlnd_flag) {
+                            ovlnd_flag = 1;
+                          }
+                        }
+                        break;
+                    }
+
+                    cp[im] += op[im];
+                    op[im] = 0.0;
+                  });
+                  break;
+                }
+
+              case overland_flow:
+                {
+                  if (overlandspinup == 1)
+                  {
+                    /* add flux loss equal to excess head  that overwrites the prior overland flux */
+                    BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
                     {
-                      cp[im] += (vol / dz) * dt * (1.0 + 0.0);                     //LEC
+                      ip = SubvectorEltIndex(p_sub, i, j, k);
+                      im = SubmatrixEltIndex(J_sub, i, j, k);
+                      switch (fdir2) {
+                        case GrGeomOctreeFaceL:
+                          op = wp;
+                          break;
+                        case GrGeomOctreeFaceR:
+                          op = ep;
+                          break;
+                        case GrGeomOctreeFaceD:
+                          op = sop;
+                          break;
+                        case GrGeomOctreeFaceU:
+                          op = np;
+                          break;
+                        case GrGeomOctreeFaceB:
+                          op = lp;
+                          break;
+                        case GrGeomOctreeFaceF:
+                          op = up;
+                          ip = SubvectorEltIndex(p_sub, i, j, k);
+                          vol = dx * dy * dz;
+
+                          if ((pp[ip]) >= 0.0)
+                          {
+                            cp[im] += (vol / dz) * dt * (1.0 + 0.0);                     //LEC
+                          }
+                          else
+                          {
+                            cp[im] += 0.0;
+                          }
+                          break;
+                      }
+                      cp[im] += op[im];
+                      op[im] = 0.0;
+                    });
+                  }
+                  else
+                  {
+                    if (diffusive == 0)
+                    {
+                      PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
+                                         (grid, is, bc_struct, ipatch, problem_data, pressure,
+                                          ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
                     }
                     else
                     {
-                      cp[im] += 0.0;
+                      PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff,
+                                         (grid, is, bc_struct, ipatch, problem_data, pressure,
+                                          ke_der, kw_der, kn_der, ks_der,
+                                          kens_der, kwns_der, knns_der, ksns_der, NULL, NULL, CALCDER));
                     }
                   }
-                });
-              }
-              else
-              {
-                /* Get overland flow contributions for using kinematic or diffusive - LEC */
-                if (diffusive == 0)
-                {
-                  PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
-                                     (grid, is, bc_struct, ipatch, problem_data, pressure,
-                                      ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
-                }
-                else
-                {
-                  /* Test running Diffuisve calc FCN */
-                  //double *dummy1, *dummy2, *dummy3, *dummy4;
-                  //PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff, (grid, is, bc_struct, ipatch, problem_data, pressure,
-                  //                                             ke_der, kw_der, kn_der, ks_der,
-                  //       dummy1, dummy2, dummy3, dummy4,
-                  //                                                    NULL, NULL, CALCFCN));
+                  break;
 
-                  PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff,
-                                     (grid, is, bc_struct, ipatch, problem_data, pressure,
-                                      ke_der, kw_der, kn_der, ks_der,
-                                      kens_der, kwns_der, knns_der, ksns_der, NULL, NULL, CALCDER));
-                }
-              }
+                }         /* End overland flow case */
+              }        /* End switch BCtype */
+            }          /* End ipatch loop */
+        }            /* End subgrid loop */
+      } /* End else */
+    }
+  }
 
-
-              break;
-            }
-          }
-        }         /* End overland flow case */
-      }        /* End switch BCtype */
-    }          /* End ipatch loop */
-  }            /* End subgrid loop */
 
   PFModuleInvokeType(RichardsBCInternalInvoke, bc_internal, (problem, problem_data, NULL, J, time,
                                                              pressure, CALCDER));
@@ -1859,4 +2674,3 @@ int  RichardsJacobianEvalSizeOfTempData()
 
   return sz;
 }
-
