@@ -107,7 +107,7 @@
 #define L830_XY(op, idx, jdx, ff, pos, neg, der, perm, meanA, meanB, coeff_sign)  \
   {                                                                     \
     diff = pp[idx + neg] - pp[idx + pos];                               \
-    L830_prod_der(idx, neg);                                            \
+    L830_prod_der(idx, pos + neg);                                      \
     L830_XY_coeff(idx, pos, neg, ff, der, perm);                         \
     L830_XY_calc(op, idx, jdx, pos, neg, meanA, meanB, coeff_sign);      \
 }
@@ -117,8 +117,8 @@
     L830_lower(idx, pos, neg);                                          \
     L830_upper(idx, pos, neg);                                          \
     diff = lower_cond - upper_cond;                                     \
-    L830_prod_der(idx, neg);                                            \
-    L830_prod_xtra(idx, neg);                                           \
+    L830_prod_der(idx, pos + neg);                                      \
+    L830_prod_xtra(idx, pos + neg);                                     \
     L830_Z_coeff(idx, ff, pos, neg);                                    \
     L830_Z_calc(op, jdx, pos + neg, prod_der_mean, prod_xtra_mean);     \
   }
