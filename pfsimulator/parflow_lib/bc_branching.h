@@ -50,6 +50,48 @@
     up[im] += sym_upper_temp;                                           \
   }
 
+#define PatchFaceSwitch(fdir, L, R, D, U, B, F, DEFAULT)  \
+  {                                                       \
+    switch (fdir)                                         \
+    {                                                     \
+      case GrGeomOctreeFaceL:                             \
+      {                                                   \
+        L;                                                \
+        break;                                            \
+      }                                                   \
+      case GrGeomOctreeFaceR:                             \
+      {                                                   \
+        R;                                                \
+        break;                                            \
+      }                                                   \
+      case GrGeomOctreeFaceD:                             \
+      {                                                   \
+        D;                                                \
+        break;                                            \
+      }                                                   \
+      case GrGeomOctreeFaceU:                             \
+      {                                                   \
+        U;                                                \
+        break;                                            \
+      }                                                   \
+      case GrGeomOctreeFaceB:                             \
+      {                                                   \
+        B;                                                \
+        break;                                            \
+      }                                                   \
+      case GrGeomOctreeFaceF:                             \
+      {                                                   \
+        F;                                                \
+        break;                                            \
+      }                                                   \
+      default:                                            \
+      {                                                   \
+        DEFAULT;                                          \
+        break;                                            \
+      }                                                   \
+    }                                                     \
+  }
+
 #define L830_lower(idx, pos, neg)                                       \
   {                                                                     \
     lower_cond = pp[idx + neg] - 0.5 * dz *                             \
@@ -122,6 +164,22 @@
     L830_Z_coeff(idx, ff, pos, neg);                                    \
     L830_Z_calc(op, jdx, pos + neg, prod_der_mean, prod_xtra_mean);     \
   }
+
+
+
+#define L970_Dirichlet(zp, idx, ff, der, perm, offset, \
+                       lval, rval, coeff_sign, A, B, C, D)  \
+  {                                                    \
+    coeff = dt * ff * z_mult_dat[idx] * (2.0 / der)    \
+      * perm[idx] / viscosity;                         \
+    op = zp;                                           \
+    prod_val = rpp[idx + offset] * den_d;              \
+    diff = lval + pp[idx] + rval;                      \
+    o_temp = (coeff_sign * coeff)                      \
+      * (diff * RPMean(value, pp[idx], A, B)           \
+         - RPMean(value, pp[idx], C, D));              \
+  }
+
 
 
 #endif // _BC_BRANCHING_H

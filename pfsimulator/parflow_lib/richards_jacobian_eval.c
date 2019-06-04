@@ -494,9 +494,9 @@ void    RichardsJacobianEval(
 
     for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
     {
-      //DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
+      DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
 
-
+      /*
       bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
 
       switch (BCStructBCType(bc_struct, ipatch))
@@ -512,6 +512,7 @@ void    RichardsJacobianEval(
             break;
           }
       }
+      */
     }          /* End ipatch loop */
   }            /* End subgrid loop */
 
@@ -825,34 +826,18 @@ void    RichardsJacobianEval(
           // SGS added this as prod was not being set to anything. Check with carol.
           prod = rpp[ip] * dp[ip];
 
-          switch(fdir2) {
-            case GrGeomOctreeFaceL:
-              L830_XY(wp, ip, im, ffx, 0, -1, dx,
-                      permxp, prod_der, 0.0, 1.0);
-              break;
-            case GrGeomOctreeFaceR:
-              L830_XY(ep, ip, im, ffx, 1, 0, dx,
-                      permxp, 0.0, prod_der, 1.0);
-              break;
-            case GrGeomOctreeFaceD:
-              L830_XY(sop, ip, im, ffy, 0, -sy_v, dy,
-                      permyp, prod_der, 0.0, -1.0)
-              break;
-            case GrGeomOctreeFaceU:
-              L830_XY(np, ip, im, ffy, sy_v, 0, dy,
-                      permyp, 0.0, prod_der, -1.0);
-              break;
-            case GrGeomOctreeFaceB:
-              L830_Z(lp, ip, im, ffz, 0, -sz_v,
-                     RPMean(lower_cond, upper_cond, prod_der, 0.0),
-                     RPMean(lower_cond, upper_cond, prod_xtra, prod));
-              break;
-            case GrGeomOctreeFaceF:
-              L830_Z(up, ip, im, ffz, sz_v, 0,
-                     RPMean(lower_cond, upper_cond, 0.0, prod_der),
-                     RPMean(lower_cond, upper_cond, prod, prod_xtra));
-              break;
-          }
+          PatchFaceSwitch(fdir2,
+                          L830_XY(wp, ip, im, ffx, 0, -1, dx, permxp, prod_der, 0.0, 1.0),
+                          L830_XY(ep, ip, im, ffx, 1,  0, dx, permxp, 0.0, prod_der, 1.0),
+                          L830_XY(sop, ip, im, ffy, 0, -sy_v, dy, permyp, prod_der, 0.0, -1.0),
+                          L830_XY(np, ip, im, ffy, sy_v, 0, dy, permyp, 0.0, prod_der, -1.0),
+                          L830_Z(lp, ip, im, ffz, 0, -sz_v,
+                                  RPMean(lower_cond, upper_cond, prod_der, 0.0),
+                                  RPMean(lower_cond, upper_cond, prod_xtra, prod)),
+                          L830_Z(up, ip, im, ffz, sz_v, 0,
+                                  RPMean(lower_cond, upper_cond, 0.0, prod_der),
+                                   RPMean(lower_cond, upper_cond, prod, prod_xtra)),
+                          {});
         });       /* End Patch Loop */
       }           /* End ipatch loop */
     }             /* End subgrid loop */
@@ -936,7 +921,7 @@ void    RichardsJacobianEval(
     permyp = SubvectorData(permy_sub);
     permzp = SubvectorData(permz_sub);
 
-    for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+    ForBCStructNumPatches(ipatch, bc_struct)
     {
       bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
 
@@ -944,7 +929,7 @@ void    RichardsJacobianEval(
       {
         case DirichletBC:
         {
-          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
+          BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
           {
             ip = SubvectorEltIndex(p_sub, i, j, k);
 
@@ -961,105 +946,51 @@ void    RichardsJacobianEval(
             prod = rpp[ip] * dp[ip];
             prod_der = rpdp[ip] * dp[ip] + rpp[ip] * ddp[ip];
 
-            if (fdir[0])
-            {
-              coeff = dt * ffx * z_mult_dat[ip] * (2.0 / dx) * permxp[ip] / viscosity;
+            // TODO: Determine a way to do Front/Back faces through a macro
+            // Current blocker on that is the lower_cond and upper_cond equations
+            PatchFaceSwitch(fdir2,
+                            L970_Dirichlet(wp, ip, ffx, dx, permxp, -1, -value, 0
+                                           1, 0.0, prod_der, prod, prod_val),
+                            L970_Dirichlet(ep, ip, ffx, dx, permxp, 1, 0, -value,
+                                           -1, prod_der, 0.0, prod, prod_val),
+                            L970_Dirichlet(sop, ip, ffy, dy, permyp, -sy_v, -value, 0,
+                                           1, 0.0, prod_der, prod_val, prod),
+                            L970_Dirichlet(np, ip, ffy, dy, permyp, sy_v, 0, -value,
+                                           -1, prod_der, 0.0, prod, prod_val),
+                            {
+                              coeff = dt * ffz *
+                                (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                                * permzp[ip] / viscosity;
+                              op = lp;
+                              prod_val = rpp[ip - sz_v] * den_d;
+                              lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity;
+                              upper_cond = (pp[ip]) + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity;
+                              diff = lower_cond - upper_cond;
+                              o_temp = coeff
+                                * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)
+                                   + ((-1.0 - gravity * 0.5 * dz
+                                       * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])
+                                      * RPMean(lower_cond, upper_cond, prod_val, prod)));
+                            },
+                            {
+                              coeff = dt * ffz *
+                                (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                                * permzp[ip] / viscosity;
+                              op = up;
+                              prod_val = rpp[ip + sz_v] * den_d;
+                              lower_cond = (pp[ip]) - 0.5 * dz *
+                                Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;
+                              upper_cond = (value) + 0.5 * dz *
+                                Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * den_d * gravity;
+                              diff = lower_cond - upper_cond;
+                              o_temp = -coeff
+                                * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
+                                   + ((1.0 - gravity * 0.5 * dz
+                                       * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])
+                                      * RPMean(lower_cond, upper_cond, prod, prod_val)));
+                            },
+                            {});
 
-              switch (fdir[0])
-              {
-                case -1:
-                  {
-                    op = wp;
-                    prod_val = rpp[ip - 1] * den_d;
-                    diff = value - pp[ip];
-                    o_temp = coeff
-                             * (diff * RPMean(value, pp[ip], 0.0, prod_der)
-                                - RPMean(value, pp[ip], prod_val, prod));
-                    break;
-                  }
-
-                case 1:
-                  {
-                    op = ep;
-                    prod_val = rpp[ip + 1] * den_d;
-                    diff = pp[ip] - value;
-                    o_temp = -coeff
-                             * (diff * RPMean(pp[ip], value, prod_der, 0.0)
-                                + RPMean(pp[ip], value, prod, prod_val));
-                    break;
-                  }
-              }          /* End switch on fdir[0] */
-            }            /* End if (fdir[0]) */
-
-            else if (fdir[1])
-            {
-              coeff = dt * ffy * z_mult_dat[ip] * (2.0 / dy) * permyp[ip] / viscosity;
-
-              switch (fdir[1])
-              {
-                case -1:
-                  {
-                    op = sop;
-                    prod_val = rpp[ip - sy_v] * den_d;
-                    diff = value - pp[ip];
-                    o_temp = coeff
-                             * (diff * RPMean(value, pp[ip], 0.0, prod_der)
-                                - RPMean(value, pp[ip], prod_val, prod));
-                    break;
-                  }
-
-                case 1:
-                  {
-                    op = np;
-                    prod_val = rpp[ip + sy_v] * den_d;
-                    diff = pp[ip] - value;
-                    o_temp = -coeff
-                             * (diff * RPMean(pp[ip], value, prod_der, 0.0)
-                                + RPMean(pp[ip], value, prod, prod_val));
-                    break;
-                  }
-              }          /* End switch on fdir[1] */
-            }            /* End if (fdir[1]) */
-
-            else if (fdir[2])
-            {
-              coeff = dt * ffz * (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]))) * permzp[ip] / viscosity;
-
-              switch (fdir[2])
-              {
-                case -1:
-                  {
-                    op = lp;
-                    prod_val = rpp[ip - sz_v] * den_d;
-
-                    lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity;
-                    upper_cond = (pp[ip]) + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity;
-                    diff = lower_cond - upper_cond;
-
-                    o_temp = coeff
-                             * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)
-                                + ((-1.0 - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])
-                                   * RPMean(lower_cond, upper_cond, prod_val, prod)));
-                    break;
-                  }
-
-                case 1:
-                  {
-                    op = up;
-                    prod_val = rpp[ip + sz_v] * den_d;
-
-                    lower_cond = (pp[ip]) - 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;
-                    upper_cond = (value) + 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * den_d * gravity;
-                    diff = lower_cond - upper_cond;
-
-                    o_temp = -coeff
-                             * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
-                                + ((1.0 - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])
-                                   * RPMean(lower_cond, upper_cond, prod, prod_val)));
-                    break;
-                  }
-              }          /* End switch on fdir[2] */
-            }         /* End if (fdir[2]) */
 
             cp[im] += op[im];
             cp[im] -= o_temp;
@@ -1071,22 +1002,12 @@ void    RichardsJacobianEval(
 
         case FluxBC:
         {
-          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
+          BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
           {
             im = SubmatrixEltIndex(J_sub, i, j, k);
 
-            if (fdir[0] == -1)
-              op = wp;
-            if (fdir[0] == 1)
-              op = ep;
-            if (fdir[1] == -1)
-              op = sop;
-            if (fdir[1] == 1)
-              op = np;
-            if (fdir[2] == -1)
-              op = lp;
-            if (fdir[2] == 1)
-              op = up;
+            PatchFaceSwitch(fdir2, {op = wp;},{op = ep;},{op = sop;},
+                            {op = np;},{op = lp;},{op = up;},{});
 
             cp[im] += op[im];
             op[im] = 0.0;
@@ -1097,34 +1018,22 @@ void    RichardsJacobianEval(
 
         case OverlandBC:     //sk
         {
-          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
+          BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
           {
             im = SubmatrixEltIndex(J_sub, i, j, k);
 
-            //remove contributions to this row corresponding to boundary
-            if (fdir[0] == -1)
-              op = wp;
-            else if (fdir[0] == 1)
-              op = ep;
-            else if (fdir[1] == -1)
-              op = sop;
-            else if (fdir[1] == 1)
-              op = np;
-            else if (fdir[2] == -1)
-              op = lp;
-            else       // (fdir[2] ==  1)
-            {
-              op = up;
-              /* check if overland flow kicks in */
-              if (!ovlnd_flag)
-              {
-                ip = SubvectorEltIndex(p_sub, i, j, k);
-                if ((pp[ip]) > 0.0)
-                {
-                  ovlnd_flag = 1;
-                }
-              }
-            }
+            PatchFaceSwitch(fdir2, {op = wp;},{op = ep;},{op = sop;},{op = np;},{op = lp;},
+                            {
+                              op = up;
+                              if (!ovlnd_flag)
+                              {
+                                ip = SubvectorEltIndex(p_sub, i, j, k);
+                                if ((pp[ip]) > 0.0)
+                                {
+                                  ovlnd_flag = 1;
+                                }
+                              }
+                            },{});
 
             cp[im] += op[im];
             op[im] = 0.0;       //zero out entry in row of Jacobian
@@ -1150,7 +1059,8 @@ void    RichardsJacobianEval(
 
                   if ((pp[ip]) > 0.0)
                   {
-                    cp[im] += (vol * z_mult_dat[ip]) / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
+                    cp[im] += (vol * z_mult_dat[ip])
+                      / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
                   }
                 }
               });
