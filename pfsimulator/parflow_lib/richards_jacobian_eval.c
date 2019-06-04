@@ -44,6 +44,8 @@
 #include "llnltyps.h"
 #include "assert.h"
 
+#include "bc_branching.h"
+
 /*---------------------------------------------------------------------
  * Define module structures
  *---------------------------------------------------------------------*/
@@ -491,21 +493,24 @@ void    RichardsJacobianEval(
 
     for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
     {
+      //DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
+
+
       bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
 
       switch (BCStructBCType(bc_struct, ipatch))
       {
         case DirichletBC:
-        {
-          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
           {
-            ip = SubvectorEltIndex(p_sub, i, j, k);
-            value = bc_patch_values[ival];
-            pp[ip + fdir[0] * 1 + fdir[1] * sy_v + fdir[2] * sz_v] = value;
-          });
-          break;
-        }
-      }        /* End switch BCtype */
+            BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
+            {
+              ip = SubvectorEltIndex(p_sub, i, j, k);
+              value = bc_patch_values[ival];
+              pp[ip + fdir[0] * 1 + fdir[1] * sy_v + fdir[2] * sz_v] = value;
+            });
+            break;
+          }
+      }
     }          /* End ipatch loop */
   }            /* End subgrid loop */
 
@@ -714,6 +719,12 @@ void    RichardsJacobianEval(
 
 
 
+
+      /*TemperatureContrib(cp, wp, ep, sop, np, lp, up, im, sy_m, sz_m,
+                         west_temp, east_temp, north_temp, south_temp,
+                         upper_temp, lower_temp, symm_part,
+                         sym_east_temp, sym_north_temp, sym_upper_temp);*/
+
       cp[im] -= west_temp + south_temp + lower_temp;
       cp[im + 1] -= east_temp;
       cp[im + sy_m] -= north_temp;
@@ -729,12 +740,13 @@ void    RichardsJacobianEval(
         sop[im + sy_m] += south_temp;
         lp[im + sz_m] += lower_temp;
       }
-      else     /* Symmetric matrix: just update upper coeffs */
+      else     // Symmetric matrix: just update upper coeffs
       {
         ep[im] += sym_east_temp;
         np[im] += sym_north_temp;
         up[im] += sym_upper_temp;
       }
+
     });
   }  //
 
@@ -816,25 +828,15 @@ void    RichardsJacobianEval(
             {
               case -1:
                 {
-                  diff = pp[ip - 1] - pp[ip];
-                  prod_der = rpdp[ip - 1] * dp[ip - 1] + rpp[ip - 1] * ddp[ip - 1];
-                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
-                          * PMean(pp[ip - 1], pp[ip], permxp[ip - 1], permxp[ip])
-                          / viscosity;
-                  wp[im] = -coeff * diff
-                           * RPMean(pp[ip - 1], pp[ip], prod_der, 0.0);
+                  L830_XY(wp, ip, im, ffx, 0, -1, dx,
+                          permxp, prod_der, 0.0, 1.0);
                   break;
                 }
 
               case 1:
                 {
-                  diff = pp[ip] - pp[ip + 1];
-                  prod_der = rpdp[ip + 1] * dp[ip + 1] + rpp[ip + 1] * ddp[ip + 1];
-                  coeff = dt * z_mult_dat[ip] * ffx * (1.0 / dx)
-                          * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
-                          / viscosity;
-                  ep[im] = coeff * diff
-                           * RPMean(pp[ip], pp[ip + 1], 0.0, prod_der);
+                  L830_XY(ep, ip, im, ffx, 1, 0, dx,
+                          permxp, 0.0, prod_der, 1.0);
                   break;
                 }
             }         /* End switch on fdir[0] */
@@ -846,30 +848,15 @@ void    RichardsJacobianEval(
             {
               case -1:
                 {
-                  diff = pp[ip - sy_v] - pp[ip];
-                  prod_der = rpdp[ip - sy_v] * dp[ip - sy_v]
-                             + rpp[ip - sy_v] * ddp[ip - sy_v];
-                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
-                          * PMean(pp[ip - sy_v], pp[ip],
-                                  permyp[ip - sy_v], permyp[ip])
-                          / viscosity;
-                  sop[im] = -coeff * diff
-                            * RPMean(pp[ip - sy_v], pp[ip], prod_der, 0.0);
-
+                  L830_XY(sop, ip, im, ffy, 0, -sy_v, dy,
+                          permyp, prod_der, 0.0, -1.0)
                   break;
                 }
 
               case 1:
                 {
-                  diff = pp[ip] - pp[ip + sy_v];
-                  prod_der = rpdp[ip + sy_v] * dp[ip + sy_v]
-                             + rpp[ip + sy_v] * ddp[ip + sy_v];
-                  coeff = dt * z_mult_dat[ip] * ffy * (1.0 / dy)
-                          * PMean(pp[ip], pp[ip + sy_v],
-                                  permyp[ip], permyp[ip + sy_v])
-                          / viscosity;
-                  np[im] = -coeff * diff
-                           * RPMean(pp[ip], pp[ip + sy_v], 0.0, prod_der);
+                  L830_XY(np, ip, im, ffy, sy_v, 0, dy,
+                         permyp, 0.0, prod_der, -1.0);
                   break;
                 }
             }         /* End switch on fdir[1] */
@@ -877,51 +864,23 @@ void    RichardsJacobianEval(
 
           else if (fdir[2])
           {
+            double prod_xtra;
             switch (fdir[2])
             {
+
               case -1:
                 {
-                  lower_cond = (pp[ip - sz_v])
-                               - 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
-                               * dp[ip - sz_v] * gravity;
-                  upper_cond = (pp[ip]) + 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])
-                               * dp[ip] * gravity;
-                  diff = lower_cond - upper_cond;
-                  prod_der = rpdp[ip - sz_v] * dp[ip - sz_v]
-                             + rpp[ip - sz_v] * ddp[ip - sz_v];
-                  prod_lo = rpp[ip - sz_v] * dp[ip - sz_v];
-                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v])))
-                          * PMeanDZ(permzp[ip - sz_v], permzp[ip],
-                                    z_mult_dat[ip - sz_v], z_mult_dat[ip])
-                          / viscosity;
-                  lp[im] = -coeff *
-                           (diff * RPMean(lower_cond, upper_cond,
-                                          prod_der, 0.0)
-                            - gravity * 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip]
-                            * RPMean(lower_cond, upper_cond, prod_lo, prod));
-
+                  L830_Z(lp, ip, im, ffz, 0, -sz_v,
+                         RPMean(lower_cond, upper_cond, prod_der, 0.0),
+                         RPMean(lower_cond, upper_cond, prod_xtra, prod));
                   break;
                 }
 
               case 1:
                 {
-                  lower_cond = (pp[ip]) - 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;
-                  upper_cond = (pp[ip + sz_v])
-                               + 0.5 * dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip + sz_v] * gravity;
-                  diff = lower_cond - upper_cond;
-                  prod_der = rpdp[ip + sz_v] * dp[ip + sz_v]
-                             + rpp[ip + sz_v] * ddp[ip + sz_v];
-                  prod_up = rpp[ip + sz_v] * dp[ip + sz_v];
-                  coeff = dt * ffz * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                          * PMeanDZ(permzp[ip], permzp[ip + sz_v],
-                                    z_mult_dat[ip], z_mult_dat[ip + sz_v])
-                          / viscosity;
-                  up[im] = -coeff *
-                           (diff * RPMean(lower_cond, upper_cond,
-                                          0.0, prod_der)
-                            - gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
-                            * RPMean(lower_cond, upper_cond, prod, prod_up));
-
+                  L830_Z(up, ip, im, ffz, sz_v, 0,
+                         RPMean(lower_cond, upper_cond, 0.0, prod_der),
+                         RPMean(lower_cond, upper_cond, prod, prod_xtra));
                   break;
                 }
             }         /* End switch on fdir[2] */
@@ -1859,4 +1818,3 @@ int  RichardsJacobianEvalSizeOfTempData()
 
   return sz;
 }
-
