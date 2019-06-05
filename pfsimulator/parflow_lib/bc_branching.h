@@ -15,11 +15,18 @@
   {                                                                     \
     case DirichletBC:                                                   \
     {                                                                   \
-      BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,     \
-      {                                               \
+      BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,   \
+      {                                              \
         ip = SubvectorEltIndex(p_sub, i, j, k);                         \
         value = bc_patch_values[ival];                                  \
-        pp[ip + fdir[0] * 1 + fdir[1] * sy_v + fdir[2] * sz_v] = value; \
+        PatchFaceSwitch(fdir2,                                          \
+                        {pp[ip - 1] = value;},                          \
+                        {pp[ip + 1] = value;},                          \
+                        {pp[ip - sy_v] = value;},                       \
+                        {pp[ip + sy_v] = value;},                       \
+                        {pp[ip - sz_v] = value;},                       \
+                        {pp[ip + sz_v] = value;},                       \
+                        {});                                            \
       });                                                               \
       break;                                                            \
     }                                                                   \
@@ -50,6 +57,20 @@
     up[im] += sym_upper_temp;                                           \
   }
 
+/**
+ *  @brief Switch macro for iterating over faces, to be used in conjunction with BCStructPatchLoopX
+ *
+ *  @note Need to make this more meaningful and useful
+ *
+ *  @param[in] fdir Face direction to switch on
+ *  @param[in] L Expression to execute on Left face
+ *  @param[in] R Expression to execute on Right face
+ *  @param[in] D Expression to execute on Down face
+ *  @param[in] U Expression to execute on Upper face
+ *  @param[in] B Expression to execute on Back face
+ *  @param[in] F Expression to execute on Front face
+ *  @param[in] DEFAULT Expression to execute for default case
+ **/
 #define PatchFaceSwitch(fdir, L, R, D, U, B, F, DEFAULT)  \
   {                                                       \
     switch (fdir)                                         \
@@ -146,6 +167,21 @@
                         ddp[idx] * prod_xtra_mean);                     \
   }
 
+/**
+ *  @brief Symmetric boundary condition corrections in richards jacobian in XY plane
+ *
+ *  @param[in] op Submatrix Stencil Data to write into
+ *  @param[in] idx Base index for reading out of SubvectorData
+ *  @param[in] jdx Index to write into op
+ *  @param[in] ff ffx, ffy, or ffz to use
+ *  @param[in] pos Integer offset in positive direction
+ *  @param[in] neg Integer offset in negative direction
+ *  @param[in] der Derivative to use (dx, dy, dz)
+ *  @param[in] perm Permability data to use (permxp, permzp, etc)
+ *  @param[in] meanA Value to use for when RPMean is true
+ *  @param[in] meanB Value to use for when RPMean is false
+ *  @param[in] coeff_sign Sign to use on coefficient value in final calculation
+ **/
 #define L830_XY(op, idx, jdx, ff, pos, neg, der, perm, meanA, meanB, coeff_sign)  \
   {                                                                     \
     diff = pp[idx + neg] - pp[idx + pos];                               \
@@ -154,6 +190,18 @@
     L830_XY_calc(op, idx, jdx, pos, neg, meanA, meanB, coeff_sign);      \
 }
 
+/**
+ *  @brief Symmetric boundary condition corrections in richards jacobian in Z plane
+ *
+ *  @param[in] op Submatrix Stencil Data to write into
+ *  @param[in] idx Base index for reading out of SubvectorData
+ *  @param[in] jdx Index to write into op
+ *  @param[in] ff ffx, ffy, or ffz to use
+ *  @param[in] pos Integer offset in positive direction
+ *  @param[in] neg Integer offset in negative direction
+ *  @param[in] prod_der_mean RPMean with prod_der value used in final calculation
+ *  @param[in] prod_xtra_mean RPMean with prod_xtra value used in final calculation
+ **/
 #define L830_Z(op, idx, jdx, ff, pos, neg, prod_der_mean, prod_xtra_mean) \
   {                                                                     \
     L830_lower(idx, pos, neg);                                          \
@@ -166,8 +214,25 @@
   }
 
 
-
-#define L970_Dirichlet(zp, idx, ff, der, perm, offset, \
+/**
+ *  @brief Calculation used in Dirichlet Boundary Condition case
+ *
+ *  @param[in] zp Submatrix Stencil Data to assign op to
+ *  @param[in] idx Base index for reading out of SubvectorData
+ *  @param[in] jdx Index to write into op
+ *  @param[in] ff ffx, ffy, or ffz to use
+ *  @param[in] der Derivative to use (dx, dy, dz)
+ *  @param[in] perm Permability data to use (permxp, permzp, etc)
+ *  @param[in] offset Offset to use when reading out of rpp data
+ *  @param[in] lval Value to use on the left side of the rhs of diff calculation
+ *  @param[in] rval Value to use on the right side of the rhs of diff calculation
+ *  @param[in] coeff_sign Sign to use on coefficient value in final calculation
+ *  @param[in] A Value to use for when first RPMean is true
+ *  @param[in] B Value to use for when first RPMean is false
+ *  @param[in] C Value to use for when second RPMean is true
+ *  @param[in] D Value to use for when second RPMean is false
+ **/
+#define L970_Dirichlet_calc(zp, idx, ff, der, perm, offset, \
                        lval, rval, coeff_sign, A, B, C, D)  \
   {                                                    \
     coeff = dt * ff * z_mult_dat[idx] * (2.0 / der)    \
@@ -180,6 +245,89 @@
          - RPMean(value, pp[idx], C, D));              \
   }
 
+#define L970_Dirichlet_Left \
+  L970_Dirichlet_calc(wp, ip, ffx, dx, permxp, -1, -value,  \
+                      0, 1, 0.0, prod_der, prod, prod_val)
+#define L970_Dirichlet_Right \
+  L970_Dirichlet_calc(ep, ip, ffx, dx, permxp, 1, 0, -value,  \
+                      -1, prod_der, 0.0, prod, prod_val)
+#define L970_Dirichlet_Up \
+  L970_Dirichlet_calc(sop, ip, ffy, dy, permyp, -sy_v, -value, 0, \
+                      1, 0.0, prod_der, prod_val, prod)
+#define L970_Dirichlet_Down                                             \
+  L970_Dirichlet_calc (np, ip, ffy, dy, permyp, sy_v, 0, -value,        \
+                       -1, prod_der, 0.0, prod, prod_val)
+
+#define L970_Dirichlet_Front \
+  {                          \
+  coeff = dt * ffz *                                          \
+    (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))  \
+    * permzp[ip] / viscosity;                                   \
+  op = lp;                                                      \
+  prod_val = rpp[ip - sz_v] * den_d;                                \
+  lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity; \
+  upper_cond = (pp[ip]) + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity; \
+  diff = lower_cond - upper_cond;                                       \
+  o_temp = coeff                                                        \
+    * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)             \
+       + ((-1.0 - gravity * 0.5 * dz                                    \
+           * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])     \
+          * RPMean(lower_cond, upper_cond, prod_val, prod)));           \
+  }
+
+#define L970_Dirichlet_Back \
+  {                                             \
+  coeff = dt * ffz *                                                    \
+    (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))          \
+    * permzp[ip] / viscosity;                                           \
+  op = up;                                                              \
+  prod_val = rpp[ip + sz_v] * den_d;                                    \
+  lower_cond = (pp[ip]) - 0.5 * dz *                                    \
+    Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;     \
+  upper_cond = (value) + 0.5 * dz *                                     \
+    Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * den_d * gravity;      \
+  diff = lower_cond - upper_cond;                                       \
+  o_temp = -coeff                                                       \
+    * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)             \
+       + ((1.0 - gravity * 0.5 * dz                                     \
+           * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])     \
+          * RPMean(lower_cond, upper_cond, prod, prod_val)));           \
+  }
+
+#define L970_Dirichlet(face) L970_Dirichlet_##face
+
+
+/*
+  Found while reading about x-macros:
+  By merely writing this macro, I am a horrible person who deserves terrible things.
+*/
+
+#define WITH_BODY(_case, body)                  \
+  case _case:                                   \
+  {                                             \
+    body;                                       \
+    break;                                      \
+  }
+
+#define ONLY_CASE(_case) \
+  case _case:
+
+#define CASE_BODY_SELECTION(arg1, arg2, arg3, ...) arg3
+#define XCASE(...) CASE_BODY_SELECTION(__VA_ARGS__, WITH_BODY, ONLY_CASE)(__VA_ARGS__)
+
+#define EXPAND_CASES_1(a, ...) a
+#define EXPAND_CASES_2(a, ...) a EXPAND_CASES_1(__VA_ARGS__)
+#define EXPAND_CASES_3(a, ...) a EXPAND_CASES_2(__VA_ARGS__)
+#define EXPAND_CASES_4(a, ...) a EXPAND_CASES_3(__VA_ARGS__)
+#define EXPAND_CASES_5(a, ...) a EXPAND_CASES_4(__VA_ARGS__)
+#define EXPAND_CASES_6(a, ...) a EXPAND_CASES_5(__VA_ARGS__)
+
+#define XSWITCH(key, numcase, ...)														\
+  switch (key) {																							\
+		EXPAND_CASES_ ##numcase(__VA_ARGS__)											\
+    default:                                                  \
+    break;                                                    \
+  }
 
 
 #endif // _BC_BRANCHING_H

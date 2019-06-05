@@ -45,6 +45,7 @@
 #include "assert.h"
 
 #include "bc_branching.h"
+#include "timer.h"
 
 /*---------------------------------------------------------------------
  * Define module structures
@@ -492,7 +493,7 @@ void    RichardsJacobianEval(
 
     pp = SubvectorData(p_sub);
 
-    for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+    ForBCStructNumPatches(ipatch, bc_struct)
     {
       DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
 
@@ -625,14 +626,113 @@ void    RichardsJacobianEval(
       x_dir_g_c = Mean(gravity * cos(atan(x_ssl_dat[ioo])), gravity * cos(atan(x_ssl_dat[ioo + 1])));
       y_dir_g = Mean(gravity * sin(atan(y_ssl_dat[ioo])), gravity * sin(atan(y_ssl_dat[ioo + sy_v])));
       y_dir_g_c = Mean(gravity * cos(atan(y_ssl_dat[ioo])), gravity * cos(atan(y_ssl_dat[ioo + sy_v])));
+      /*
+      double x_diff = pp[ip] - pp[ip + 1];
+      double x_dir = (x_diff / dx) * x_dir_g_c - x_dir_g;
+      double y_diff = pp[ip] - pp[ip + sy_v];
+      double y_dir = (y_diff / dy) * y_dir_g_c - y_dir_g;
 
+      sep = (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]));
+      lower_cond = pp[ip] / sep
+        - (z_mult_dat[ip] / (z_mult_dat[ip] + z_mult_dat[ip + sz_v]))
+        * dp[ip] * gravity;
+      upper_cond = pp[ip + sz_v] / sep
+        + (z_mult_dat[ip + sz_v] / (z_mult_dat[ip] + z_mult_dat[ip + sz_v]))
+        * dp[ip + sz_v] * gravity;
+      double z_diff = lower_cond - upper_cond;
+
+      x_coeff = dt * ffx * (1.0 / dx) * z_mult_dat[ip]
+        * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+        / viscosity;
+      y_coeff = dt * ffy * (1.0 / dy) * z_mult_dat[ip]
+        * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+        / viscosity;
+      z_coeff = dt * ffz
+        * PMeanDZ(permzp[ip], permzp[ip + sz_v], z_mult_dat[ip], z_mult_dat[ip + sz_v])
+        / viscosity;
+
+
+
+      // a - b >= 0 ? c : d
+
+      if (x_dir >= 0) {
+        sym_west_temp = (-x_coeff * prod * x_dir_g_c);
+        west_temp = (-x_coeff * x_diff * prod_der * x_dir_g_c + sym_west_temp)
+          + (x_coeff * dx * prod_der * x_dir_g);
+
+        sym_east_temp = -x_coeff * prod * x_dir_g_c;
+        east_temp = sym_east_temp; //Rest of equations are 0 from RPMean
+      } else {
+        sym_west_temp = (-x_coeff * prod_rt * x_dir_g_c);
+        west_temp = sym_west_temp;
+
+        sym_east_temp = -x_coeff * prod_rt * x_dir_g_c;
+        east_temp = (x_coeff * x_diff * prod_rt_der) * x_dir_g_c + sym_east_temp
+          -(x_coeff * dx * prod_rt_der * x_dir_g);
+      }
+
+      if (y_dir >= 0) {
+        sym_south_temp = -y_coeff * prod * y_dir_g_c;
+        south_temp = (-y_coeff * y_diff * prod_der * y_dir_g_c + sym_south_temp)
+          + (y_coeff * dy * prod_der * y_dir_g);
+
+        sym_north_temp = y_coeff * -prod * y_dir_g_c;
+        north_temp = sym_north_temp; // Rest of equations are 0 from RPMean
+      } else {
+        sym_south_temp = -y_coeff * prod_no * y_dir_g_c;
+        south_temp = sym_south_temp;
+
+        sym_north_temp = y_coeff * prod_no * y_dir_g_c;
+        north_temp = (y_coeff * y_diff * prod_no_der * y_dir_g_c + sym_north_temp)
+          -(y_coeff * dy * prod_no_der * y_dir_g);
+      }
+
+      if (z_diff >= 0) {
+        sym_lower_temp = -z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+          * prod;
+
+      lower_temp = -z_coeff
+                   * (z_diff * prod_der
+                      + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                         * prod))
+                   + sym_lower_temp;
+
+      sym_upper_temp = z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                       * -prod;
+
+      upper_temp = z_coeff
+                   * (-gravity * 0.5 * dz
+                      * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip + sz_v]
+                         * prod)
+                   + sym_upper_temp;
+      } else {
+        sym_lower_temp = -z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+          * prod_up;
+        lower_temp = -z_coeff
+          * (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                * prod)
+          + sym_lower_temp;
+
+        sym_upper_temp = z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+          * -prod_up;
+        upper_temp = z_coeff
+          * (z_diff * prod_up_der
+             + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip + sz_v]
+                * prod_up))
+          + sym_upper_temp;
+      }
+      */
+      /*TemperatureContrib(cp, wp, ep, sop, np, lp, up, im, sy_m, sz_m,
+                         west_temp, east_temp, north_temp, south_temp,
+                         upper_temp, lower_temp, symm_part,
+                         sym_east_temp, sym_north_temp, sym_upper_temp);*/
       /* diff >= 0 implies flow goes left to right */
       diff = pp[ip] - pp[ip + 1];
       updir = (diff / dx) * x_dir_g_c - x_dir_g;
 
       x_coeff = dt * ffx * (1.0 / dx) * z_mult_dat[ip]
-                * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
-                / viscosity;
+                  * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                  / viscosity;
 
       sym_west_temp = (-x_coeff
                        * RPMean(updir, 0.0, prod, prod_rt)) * x_dir_g_c; //@RMM TFG contributions, sym
@@ -658,26 +758,26 @@ void    RichardsJacobianEval(
       updir = (diff / dy) * y_dir_g_c - y_dir_g;
 
       y_coeff = dt * ffy * (1.0 / dy) * z_mult_dat[ip]
-                * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
-                / viscosity;
+                  * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                  / viscosity;
 
       sym_south_temp = -y_coeff
-                       * RPMean(updir, 0.0, prod, prod_no) * y_dir_g_c; //@RMM TFG contributions, SYMM
+                  * RPMean(updir, 0.0, prod, prod_no) * y_dir_g_c; //@RMM TFG contributions, SYMM
 
       south_temp = -y_coeff * diff
-                   * RPMean(updir, 0.0, prod_der, 0.0) * y_dir_g_c
-                   + sym_south_temp;
+                  * RPMean(updir, 0.0, prod_der, 0.0) * y_dir_g_c
+                  + sym_south_temp;
 
       south_temp += (y_coeff * dy * RPMean(updir, 0.0, prod_der, 0.0)) * y_dir_g; //@RMM TFG contributions, non sym
 
 
       sym_north_temp = y_coeff
-                       * -RPMean(updir, 0.0, prod, prod_no) * y_dir_g_c; //@RMM  TFG contributions non SYMM
+                  * -RPMean(updir, 0.0, prod, prod_no) * y_dir_g_c; //@RMM  TFG contributions non SYMM
 
       north_temp = y_coeff * diff
-                   * RPMean(updir, 0.0, 0.0,
-                            prod_no_der) * y_dir_g_c
-                   + sym_north_temp;
+                  * RPMean(updir, 0.0, 0.0,
+                           prod_no_der) * y_dir_g_c
+                  + sym_north_temp;
 
       north_temp += -(y_coeff * dy * RPMean(updir, 0.0, 0.0, prod_no_der)) * y_dir_g; //@RMM  TFG contributions non sym
 
@@ -693,39 +793,32 @@ void    RichardsJacobianEval(
       diff = lower_cond - upper_cond;
 
       z_coeff = dt * ffz
-                * PMeanDZ(permzp[ip], permzp[ip + sz_v], z_mult_dat[ip], z_mult_dat[ip + sz_v])
-                / viscosity;
+                  * PMeanDZ(permzp[ip], permzp[ip + sz_v], z_mult_dat[ip], z_mult_dat[ip + sz_v])
+                  / viscosity;
 
       sym_lower_temp = -z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                       * RPMean(lower_cond, upper_cond, prod,
-                                prod_up);
+                  * RPMean(lower_cond, upper_cond, prod,
+                           prod_up);
 
       lower_temp = -z_coeff
-                   * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
-                      + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
-                         * RPMean(lower_cond, upper_cond, prod,
-                                  prod_up)))
-                   + sym_lower_temp;
+                  * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
+                     + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                        * RPMean(lower_cond, upper_cond, prod,
+                                 prod_up)))
+                  + sym_lower_temp;
 
       sym_upper_temp = z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                       * -RPMean(lower_cond, upper_cond, prod,
-                                 prod_up);
+                  * -RPMean(lower_cond, upper_cond, prod,
+                            prod_up);
 
       upper_temp = z_coeff
-                   * (diff * RPMean(lower_cond, upper_cond, 0.0,
-                                    prod_up_der)
-                      + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip + sz_v]
-                         * RPMean(lower_cond, upper_cond, prod,
-                                  prod_up)))
-                   + sym_upper_temp;
+                  * (diff * RPMean(lower_cond, upper_cond, 0.0,
+                                   prod_up_der)
+                     + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip + sz_v]
+                        * RPMean(lower_cond, upper_cond, prod,
+                                 prod_up)))
+                  + sym_upper_temp;
 
-
-
-
-      /*TemperatureContrib(cp, wp, ep, sop, np, lp, up, im, sy_m, sz_m,
-                         west_temp, east_temp, north_temp, south_temp,
-                         upper_temp, lower_temp, symm_part,
-                         sym_east_temp, sym_north_temp, sym_upper_temp);*/
 
       cp[im] -= west_temp + south_temp + lower_temp;
       cp[im + 1] -= east_temp;
@@ -948,49 +1041,13 @@ void    RichardsJacobianEval(
 
             // TODO: Determine a way to do Front/Back faces through a macro
             // Current blocker on that is the lower_cond and upper_cond equations
-            PatchFaceSwitch(fdir2,
-                            L970_Dirichlet(wp, ip, ffx, dx, permxp, -1, -value, 0
-                                           1, 0.0, prod_der, prod, prod_val),
-                            L970_Dirichlet(ep, ip, ffx, dx, permxp, 1, 0, -value,
-                                           -1, prod_der, 0.0, prod, prod_val),
-                            L970_Dirichlet(sop, ip, ffy, dy, permyp, -sy_v, -value, 0,
-                                           1, 0.0, prod_der, prod_val, prod),
-                            L970_Dirichlet(np, ip, ffy, dy, permyp, sy_v, 0, -value,
-                                           -1, prod_der, 0.0, prod, prod_val),
-                            {
-                              coeff = dt * ffz *
-                                (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                                * permzp[ip] / viscosity;
-                              op = lp;
-                              prod_val = rpp[ip - sz_v] * den_d;
-                              lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity;
-                              upper_cond = (pp[ip]) + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity;
-                              diff = lower_cond - upper_cond;
-                              o_temp = coeff
-                                * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)
-                                   + ((-1.0 - gravity * 0.5 * dz
-                                       * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])
-                                      * RPMean(lower_cond, upper_cond, prod_val, prod)));
-                            },
-                            {
-                              coeff = dt * ffz *
-                                (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                                * permzp[ip] / viscosity;
-                              op = up;
-                              prod_val = rpp[ip + sz_v] * den_d;
-                              lower_cond = (pp[ip]) - 0.5 * dz *
-                                Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;
-                              upper_cond = (value) + 0.5 * dz *
-                                Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * den_d * gravity;
-                              diff = lower_cond - upper_cond;
-                              o_temp = -coeff
-                                * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
-                                   + ((1.0 - gravity * 0.5 * dz
-                                       * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])
-                                      * RPMean(lower_cond, upper_cond, prod, prod_val)));
-                            },
-                            {});
-
+            XSWITCH(fdir2, 6,
+                    XCASE(0, L970_Dirichlet(Left))
+                    XCASE(1, L970_Dirichlet(Right)),
+                    XCASE(2, L970_Dirichlet(Up)),
+                    XCASE(3, L970_Dirichlet(Down)),
+                    XCASE(4, L970_Dirichlet(Front)),
+                    XCASE(5, L970_Dirichlet(Back)));
 
             cp[im] += op[im];
             cp[im] -= o_temp;
@@ -1006,8 +1063,13 @@ void    RichardsJacobianEval(
           {
             im = SubmatrixEltIndex(J_sub, i, j, k);
 
-            PatchFaceSwitch(fdir2, {op = wp;},{op = ep;},{op = sop;},
-                            {op = np;},{op = lp;},{op = up;},{});
+            XSWITCH(fdir2, 6,
+                    XCASE(0, {op = wp;}),
+                    XCASE(1, {op = ep;}),
+                    XCASE(2, {op = sop;}),
+                    XCASE(3, {op = np;}),
+                    XCASE(4, {op = lp;}),
+                    XCASE(5, {op = up;}));
 
             cp[im] += op[im];
             op[im] = 0.0;
@@ -1038,8 +1100,7 @@ void    RichardsJacobianEval(
             cp[im] += op[im];
             op[im] = 0.0;       //zero out entry in row of Jacobian
           });
-
-          switch (public_xtra->type)
+switch (public_xtra->type)
           {
             case no_nonlinear_jacobian:
             case not_set:
@@ -1059,8 +1120,7 @@ void    RichardsJacobianEval(
 
                   if ((pp[ip]) > 0.0)
                   {
-                    cp[im] += (vol * z_mult_dat[ip])
-                      / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
+                    cp[im] += (vol * z_mult_dat[ip]) / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
                   }
                 }
               });
@@ -1127,6 +1187,68 @@ void    RichardsJacobianEval(
               break;
             }
           }
+
+          /*
+          XSWITCH(public_xtra->type, 4,
+                  XCASE(no_nonlinear_jacobian),
+                  XCASE(not_set, {assert(1);}),
+                  XCASE(simple,
+                        BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
+                        {
+                          if (fdir[2] == 1)
+                          {
+                            ip = SubvectorEltIndex(p_sub, i, j, k);
+                            io = SubvectorEltIndex(p_sub, i, j, 0);
+                            im = SubmatrixEltIndex(J_sub, i, j, k);
+
+                            if ((pp[ip]) > 0.0)
+                            {
+                              cp[im] += (vol * z_mult_dat[ip])
+                                / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
+                            }
+                          }
+                        })),
+                  XCASE(overland_flow,
+                        if (overlandspinup == 1)
+                        {
+                          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
+                          {
+                            if (fdir[2] == 1)
+                            {
+                              ip = SubvectorEltIndex(p_sub, i, j, k);
+                              io = SubvectorEltIndex(p_sub, i, j, 0);
+                              im = SubmatrixEltIndex(J_sub, i, j, k);
+                              vol = dx * dy * dz;
+
+                              if ((pp[ip]) >= 0.0)
+                              {
+                                cp[im] += (vol / dz) * dt * (1.0 + 0.0);                     //LEC
+                              }
+                              else
+                              {
+                                cp[im] += 0.0;
+                              }
+                            }
+                          });
+                        }
+                        else
+                        {
+                          if (diffusive == 0)
+                          {
+                            PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
+                                               (grid, is, bc_struct, ipatch, problem_data, pressure,
+                                                ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
+                          }
+                          else
+                          {
+                            PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff,
+                                               (grid, is, bc_struct, ipatch, problem_data, pressure,
+                                                ke_der, kw_der, kn_der, ks_der,
+                                                kens_der, kwns_der, knns_der, ksns_der, NULL, NULL, CALCDER));
+                          }
+                        }));
+          */
+
         }         /* End overland flow case */
       }        /* End switch BCtype */
     }          /* End ipatch loop */
