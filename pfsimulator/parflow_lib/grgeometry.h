@@ -217,8 +217,9 @@ typedef struct {
  *   Macro for looping over the faces of a solid patch.
  *--------------------------------------------------------------------------*/
 
-#define GrGeomPatchLoopX(i, j, k, fdir, grgeom, patch_num,    \
-                         r, ix, iy, iz, nx, ny, nz, body)     \
+#define GrGeomPatchLoopXX(i, j, k, grgeom, patch_num,          \
+                         r, ix, iy, iz, nx, ny, nz,           \
+                          prologue, epilogue, ...)            \
   {                                                           \
     GrGeomOctree  *PV_node;                                   \
     double PV_ref = pow(2.0, r);                              \
@@ -227,10 +228,27 @@ typedef struct {
     i = GrGeomSolidOctreeIX(grgeom) * (int)PV_ref;            \
     j = GrGeomSolidOctreeIY(grgeom) * (int)PV_ref;            \
     k = GrGeomSolidOctreeIZ(grgeom) * (int)PV_ref;            \
-    GrGeomOctreeFaceLoopX(i, j, k, fdir, PV_node,             \
+    GrGeomOctreeFaceLoopXX(i, j, k, PV_node,                  \
                 GrGeomSolidPatch(grgeom, patch_num),          \
                 GrGeomSolidOctreeBGLevel(grgeom) + r,         \
-                ix, iy, iz, nx, ny, nz, body);                \
+                           ix, iy, iz, nx, ny, nz,            \
+                           prologue, epilogue, __VA_ARGS__);  \
+  }
+
+#define GrGeomPatchLoopX(i, j, k, fdir, grgeom, patch_num,              \
+                         r, ix, iy, iz, nx, ny, nz, body)               \
+  {                                                                     \
+    GrGeomOctree  *PV_node;                                             \
+    double PV_ref = pow(2.0, r);                                        \
+                                                                        \
+                                                                        \
+    i = GrGeomSolidOctreeIX(grgeom) * (int)PV_ref;                      \
+    j = GrGeomSolidOctreeIY(grgeom) * (int)PV_ref;                      \
+    k = GrGeomSolidOctreeIZ(grgeom) * (int)PV_ref;                      \
+    GrGeomOctreeFaceLoopX(i, j, k, fdir, PV_node,                       \
+                          GrGeomSolidPatch(grgeom, patch_num),          \
+                          GrGeomSolidOctreeBGLevel(grgeom) + r,         \
+                          ix, iy, iz, nx, ny, nz, body);                \
   }
 
 /*--------------------------------------------------------------------------

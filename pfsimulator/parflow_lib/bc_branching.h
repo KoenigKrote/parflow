@@ -8,6 +8,15 @@
  *
  *****************************************************************************/
 
+// NOTE: This macro will cause breakage on the switch if too many arguments are passed in!
+// Solution is to just increase the total number of args it can take
+#define EVAL_COUNT_VARARGS(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, N, ...) N
+#define COUNT_VARARGS(...) EVAL_COUNT_VARARGS("n", ##__VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+
+// This is silly but the preprocessor requires indirection to evaluate this correctly
+#define EXPAND_INDIRECTION(n) EXPAND_CASES_ ## n
+#define EXPAND_CASES(n) EXPAND_INDIRECTION(n)
+
 #define DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v) \
   bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);         \
                                                                         \
@@ -213,24 +222,14 @@
     L830_Z_calc(op, jdx, pos + neg, prod_der_mean, prod_xtra_mean);     \
   }
 
-
-
-
-
-
-  L830_Z(up, ip, im, ffz, sz_v, 0,
-           RPMean(lower_cond, upper_cond, 0.0, prod_der),
-           RPMean(lower_cond, upper_cond, prod, prod_xtra)),
-
-
-#define L830_CALC_LEFT L830_XY(wp, ip, im, ffx, 0, -1, dx, permxp, prod_der, 0.0, 1.0)
-#define L830_CALC_RIGHT L830_XY(ep, ip, im, ffx, 1,  0, dx, permxp, 0.0, prod_der, 1.0)
-#define L830_CALC_UP L830_XY(sop, ip, im, ffy, 0, -sy_v, dy, permyp, prod_der, 0.0, -1.0)
-#define L830_CALC_DOWN L830_XY(np, ip, im, ffy, sy_v, 0, dy, permyp, 0.0, prod_der, -1.0)
-#define L830_CALC_FRONT L830_Z(lp, ip, im, ffz, 0, -sz_v, \
+#define L830_CALC_Left L830_XY(wp, ip, im, ffx, 0, -1, dx, permxp, prod_der, 0.0, 1.0)
+#define L830_CALC_Right L830_XY(ep, ip, im, ffx, 1,  0, dx, permxp, 0.0, prod_der, 1.0)
+#define L830_CALC_Up L830_XY(sop, ip, im, ffy, 0, -sy_v, dy, permyp, prod_der, 0.0, -1.0)
+#define L830_CALC_Down L830_XY(np, ip, im, ffy, sy_v, 0, dy, permyp, 0.0, prod_der, -1.0)
+#define L830_CALC_Front L830_Z(lp, ip, im, ffz, 0, -sz_v, \
                                RPMean(lower_cond, upper_cond, prod_der, 0.0), \
                                RPMean(lower_cond, upper_cond, prod_xtra, prod))
-#define L830_CALC_BACK L830_Z(up, ip, im, ffz, sz_v, 0, \
+#define L830_CALC_Back L830_Z(up, ip, im, ffz, sz_v, 0, \
                               RPMean(lower_cond, upper_cond, 0.0, prod_der), \
                               RPMean(lower_cond, upper_cond, prod, prod_xtra))
 
@@ -268,53 +267,53 @@
          - RPMean(value, pp[idx], C, D));              \
   }
 
-#define L970_Dirichlet_Left \
+#define L970_Dirichlet_Left                                 \
   L970_Dirichlet_calc(wp, ip, ffx, dx, permxp, -1, -value,  \
                       0, 1, 0.0, prod_der, prod, prod_val)
-#define L970_Dirichlet_Right \
+#define L970_Dirichlet_Right                                  \
   L970_Dirichlet_calc(ep, ip, ffx, dx, permxp, 1, 0, -value,  \
                       -1, prod_der, 0.0, prod, prod_val)
-#define L970_Dirichlet_Up \
+#define L970_Dirichlet_Up                                         \
   L970_Dirichlet_calc(sop, ip, ffy, dy, permyp, -sy_v, -value, 0, \
                       1, 0.0, prod_der, prod_val, prod)
 #define L970_Dirichlet_Down                                             \
   L970_Dirichlet_calc (np, ip, ffy, dy, permyp, sy_v, 0, -value,        \
                        -1, prod_der, 0.0, prod, prod_val)
 
-#define L970_Dirichlet_Front \
-  {                          \
-  coeff = dt * ffz *                                          \
-    (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))  \
-    * permzp[ip] / viscosity;                                   \
-  op = lp;                                                      \
-  prod_val = rpp[ip - sz_v] * den_d;                                \
-  lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity; \
-  upper_cond = (pp[ip]) + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity; \
-  diff = lower_cond - upper_cond;                                       \
-  o_temp = coeff                                                        \
-    * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)             \
-       + ((-1.0 - gravity * 0.5 * dz                                    \
-           * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])     \
-          * RPMean(lower_cond, upper_cond, prod_val, prod)));           \
+#define L970_Dirichlet_Front                                            \
+  {                                                                     \
+    coeff = dt * ffz *                                                  \
+      (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))        \
+      * permzp[ip] / viscosity;                                         \
+    op = lp;                                                            \
+    prod_val = rpp[ip - sz_v] * den_d;                                  \
+    lower_cond = (value) - 0.5 * dz * z_mult_dat[ip] * den_d * gravity; \
+    upper_cond = (pp[ip]) + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity; \
+    diff = lower_cond - upper_cond;                                     \
+    o_temp = coeff                                                      \
+      * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)           \
+         + ((-1.0 - gravity * 0.5 * dz                                  \
+             * Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])   \
+            * RPMean(lower_cond, upper_cond, prod_val, prod)));         \
   }
 
-#define L970_Dirichlet_Back \
-  {                                             \
-  coeff = dt * ffz *                                                    \
-    (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))          \
-    * permzp[ip] / viscosity;                                           \
-  op = up;                                                              \
-  prod_val = rpp[ip + sz_v] * den_d;                                    \
-  lower_cond = (pp[ip]) - 0.5 * dz *                                    \
-    Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;     \
-  upper_cond = (value) + 0.5 * dz *                                     \
-    Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * den_d * gravity;      \
-  diff = lower_cond - upper_cond;                                       \
-  o_temp = -coeff                                                       \
-    * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)             \
-       + ((1.0 - gravity * 0.5 * dz                                     \
-           * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])     \
-          * RPMean(lower_cond, upper_cond, prod, prod_val)));           \
+#define L970_Dirichlet_Back                                             \
+  {                                                                     \
+    coeff = dt * ffz *                                                  \
+      (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))        \
+      * permzp[ip] / viscosity;                                         \
+    op = up;                                                            \
+    prod_val = rpp[ip + sz_v] * den_d;                                  \
+    lower_cond = (pp[ip]) - 0.5 * dz *                                  \
+      Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * dp[ip] * gravity;   \
+    upper_cond = (value) + 0.5 * dz *                                   \
+      Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * den_d * gravity;    \
+    diff = lower_cond - upper_cond;                                     \
+    o_temp = -coeff                                                     \
+      * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)           \
+         + ((1.0 - gravity * 0.5 * dz                                   \
+             * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])   \
+            * RPMean(lower_cond, upper_cond, prod, prod_val)));         \
   }
 
 #define L970_Dirichlet(face) L970_Dirichlet_##face
@@ -345,9 +344,9 @@
 #define EXPAND_CASES_5(a, ...) a EXPAND_CASES_4(__VA_ARGS__)
 #define EXPAND_CASES_6(a, ...) a EXPAND_CASES_5(__VA_ARGS__)
 
-#define XSWITCH(key, numcase, ...)														\
+#define XSWITCH(key, ...)                                     \
   switch (key) {																							\
-		EXPAND_CASES_ ##numcase(__VA_ARGS__)											\
+		EXPAND_CASES(COUNT_VARARGS(__VA_ARGS__))(__VA_ARGS__)     \
     default:                                                  \
     break;                                                    \
   }

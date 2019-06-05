@@ -82,6 +82,26 @@ typedef struct {
 /*--------------------------------------------------------------------------
  * Experimental Looping macro:
  *--------------------------------------------------------------------------*/
+#define BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, prologue, epilogue, ...) \
+  {                                                                     \
+    GrGeomSolid  *PV_gr_domain = BCStructGrDomain(bc_struct);           \
+    int PV_patch_index = BCStructPatchIndex(bc_struct, ipatch);         \
+    Subgrid      *PV_subgrid = BCStructSubgrid(bc_struct, is);          \
+                                                                        \
+    int PV_r = SubgridRX(PV_subgrid);                                   \
+    int PV_ix = SubgridIX(PV_subgrid);                                  \
+    int PV_iy = SubgridIY(PV_subgrid);                                  \
+    int PV_iz = SubgridIZ(PV_subgrid);                                  \
+    int PV_nx = SubgridNX(PV_subgrid);                                  \
+    int PV_ny = SubgridNY(PV_subgrid);                                  \
+    int PV_nz = SubgridNZ(PV_subgrid);                                  \
+                                                                        \
+    ival = 0;                                                           \
+    GrGeomPatchLoopXX(i, j, k, PV_gr_domain, PV_patch_index,            \
+                     PV_r, PV_ix, PV_iy, PV_iz, PV_nx, PV_ny, PV_nz,    \
+                      prologue, { epilogue; ival++; }, __VA_ARGS__);    \
+  }
+
 #define BCStructPatchLoopX(i, j, k, fdir, ival, bc_struct, ipatch, is, body) \
   {                                                                     \
     GrGeomSolid  *PV_gr_domain = BCStructGrDomain(bc_struct);           \
@@ -99,7 +119,7 @@ typedef struct {
     ival = 0;                                                           \
     GrGeomPatchLoopX(i, j, k, fdir, PV_gr_domain, PV_patch_index,       \
                      PV_r, PV_ix, PV_iy, PV_iz, PV_nx, PV_ny, PV_nz,    \
-    {                                                                   \
+    {                                                  \
       body;                                                             \
       ival++;                                                           \
     });                                                                 \

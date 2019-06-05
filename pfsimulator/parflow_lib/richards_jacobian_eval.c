@@ -909,25 +909,25 @@ void    RichardsJacobianEval(
 
 
       double prod_xtra; // Used in L830_Z macro instead of separate prod_lo and prod_up values
-      for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
+      ForBCStructNumPatches(ipatch, bc_struct)
       {
-        BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+        BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
         {
           ip = SubvectorEltIndex(p_sub, i, j, k);
           im = SubmatrixEltIndex(J_sub, i, j, k);
 
           // SGS added this as prod was not being set to anything. Check with carol.
           prod = rpp[ip] * dp[ip];
-
-          XSWITCH(fdir2, 6,
-                  XCASE(0, L830_CALC(Left)),
-                  XCASE(1, L830_CALC(Right)),
-                  XCASE(2, L830_CALC(Up)),
-                  XCASE(3, L830_CALC(Down)),
-                  XCASE(4, L830_CALC(Front)),
-                  XCASE(5, L830_CALC(Back)));
-
-        });       /* End Patch Loop */
+        },
+        {
+        },
+          XCASE(0, L830_CALC(Left)),
+          XCASE(1, L830_CALC(Right)),
+          XCASE(2, L830_CALC(Up)),
+          XCASE(3, L830_CALC(Down)),
+          XCASE(4, L830_CALC(Front)),
+          XCASE(5, L830_CALC(Back))
+        );       /* End Patch Loop */
       }           /* End ipatch loop */
     }             /* End subgrid loop */
   }                  /* End if symm_part */
@@ -1037,7 +1037,7 @@ void    RichardsJacobianEval(
 
             // TODO: Determine a way to do Front/Back faces through a macro
             // Current blocker on that is the lower_cond and upper_cond equations
-            XSWITCH(fdir2, 6,
+            XSWITCH(fdir2,
                     XCASE(0, L970_Dirichlet(Left))
                     XCASE(1, L970_Dirichlet(Right)),
                     XCASE(2, L970_Dirichlet(Up)),
@@ -1059,7 +1059,7 @@ void    RichardsJacobianEval(
           {
             im = SubmatrixEltIndex(J_sub, i, j, k);
 
-            XSWITCH(fdir2, 6,
+            XSWITCH(fdir2,
                     XCASE(0, {op = wp;}),
                     XCASE(1, {op = ep;}),
                     XCASE(2, {op = sop;}),
