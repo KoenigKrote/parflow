@@ -920,6 +920,7 @@ void    RichardsJacobianEval(
           prod = rpp[ip] * dp[ip];
         },
         {
+          // Empty epilogue body
         },
           XCASE(0, L830_CALC(Left)),
           XCASE(1, L830_CALC(Right)),
@@ -1018,8 +1019,8 @@ void    RichardsJacobianEval(
       {
         case DirichletBC:
         {
-          BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
-          {
+          BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
+          { // Prologue body
             ip = SubvectorEltIndex(p_sub, i, j, k);
 
             value = bc_patch_values[ival];
@@ -1034,69 +1035,77 @@ void    RichardsJacobianEval(
 
             prod = rpp[ip] * dp[ip];
             prod_der = rpdp[ip] * dp[ip] + rpp[ip] * ddp[ip];
-
-            // TODO: Determine a way to do Front/Back faces through a macro
-            // Current blocker on that is the lower_cond and upper_cond equations
-            XSWITCH(fdir2,
-                    XCASE(0, L970_Dirichlet(Left))
-                    XCASE(1, L970_Dirichlet(Right)),
-                    XCASE(2, L970_Dirichlet(Up)),
-                    XCASE(3, L970_Dirichlet(Down)),
-                    XCASE(4, L970_Dirichlet(Front)),
-                    XCASE(5, L970_Dirichlet(Back)));
-
+          },
+          {
+            // Epilogue body
             cp[im] += op[im];
             cp[im] -= o_temp;
             op[im] = 0.0;
-          });
+          },
+            XCASE(0, L970_Dirichlet(Left))
+            XCASE(1, L970_Dirichlet(Right)),
+            XCASE(2, L970_Dirichlet(Up)),
+            XCASE(3, L970_Dirichlet(Down)),
+            XCASE(4, L970_Dirichlet(Front)),
+            XCASE(5, L970_Dirichlet(Back))
+          );
 
           break;
         }               /* End DirichletBC case */
 
         case FluxBC:
         {
-          BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+          BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
+          {
+            //Empty prologue
+          },
           {
             im = SubmatrixEltIndex(J_sub, i, j, k);
-
-            XSWITCH(fdir2,
-                    XCASE(0, {op = wp;}),
-                    XCASE(1, {op = ep;}),
-                    XCASE(2, {op = sop;}),
-                    XCASE(3, {op = np;}),
-                    XCASE(4, {op = lp;}),
-                    XCASE(5, {op = up;}));
-
             cp[im] += op[im];
             op[im] = 0.0;
-          });
+          },
+            XCASE(0, {op = wp;}),
+            XCASE(1, {op = ep;}),
+            XCASE(2, {op = sop;}),
+            XCASE(3, {op = np;}),
+            XCASE(4, {op = lp;}),
+            XCASE(5, {op = up;})
+          );
 
           break;
         }         /* End fluxbc case */
 
         case OverlandBC:     //sk
         {
-          BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,
+          BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
+          {
+            //Empty prologue
+          },
           {
             im = SubmatrixEltIndex(J_sub, i, j, k);
-
-            PatchFaceSwitch(fdir2, {op = wp;},{op = ep;},{op = sop;},{op = np;},{op = lp;},
-                            {
-                              op = up;
-                              if (!ovlnd_flag)
-                              {
-                                ip = SubvectorEltIndex(p_sub, i, j, k);
-                                if ((pp[ip]) > 0.0)
-                                {
-                                  ovlnd_flag = 1;
-                                }
-                              }
-                            },{});
-
             cp[im] += op[im];
             op[im] = 0.0;       //zero out entry in row of Jacobian
-          });
-switch (public_xtra->type)
+          },
+            XCASE(0, {op = wp;}),
+            XCASE(1, {op = ep;}),
+            XCASE(2, {op = sop;}),
+            XCASE(3, {op = np;}),
+            XCASE(4, {op = lp;}),
+            XCASE(5,
+                  {
+                    op = up;
+                    if (!ovlnd_flag)
+                    {
+                      ip = SubvectorEltIndex(p_sub, i, j, k);
+                      if ((pp[ip]) > 0.0)
+                      {
+                        ovlnd_flag = 1;
+                      }
+                    }
+                  })
+          );
+
+          switch (public_xtra->type)
           {
             case no_nonlinear_jacobian:
             case not_set:
