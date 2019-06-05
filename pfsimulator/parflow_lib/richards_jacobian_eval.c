@@ -919,18 +919,14 @@ void    RichardsJacobianEval(
           // SGS added this as prod was not being set to anything. Check with carol.
           prod = rpp[ip] * dp[ip];
 
-          PatchFaceSwitch(fdir2,
-                          L830_XY(wp, ip, im, ffx, 0, -1, dx, permxp, prod_der, 0.0, 1.0),
-                          L830_XY(ep, ip, im, ffx, 1,  0, dx, permxp, 0.0, prod_der, 1.0),
-                          L830_XY(sop, ip, im, ffy, 0, -sy_v, dy, permyp, prod_der, 0.0, -1.0),
-                          L830_XY(np, ip, im, ffy, sy_v, 0, dy, permyp, 0.0, prod_der, -1.0),
-                          L830_Z(lp, ip, im, ffz, 0, -sz_v,
-                                  RPMean(lower_cond, upper_cond, prod_der, 0.0),
-                                  RPMean(lower_cond, upper_cond, prod_xtra, prod)),
-                          L830_Z(up, ip, im, ffz, sz_v, 0,
-                                  RPMean(lower_cond, upper_cond, 0.0, prod_der),
-                                   RPMean(lower_cond, upper_cond, prod, prod_xtra)),
-                          {});
+          XSWITCH(fdir2, 6,
+                  XCASE(0, L830_CALC(Left)),
+                  XCASE(1, L830_CALC(Right)),
+                  XCASE(2, L830_CALC(Up)),
+                  XCASE(3, L830_CALC(Down)),
+                  XCASE(4, L830_CALC(Front)),
+                  XCASE(5, L830_CALC(Back)));
+
         });       /* End Patch Loop */
       }           /* End ipatch loop */
     }             /* End subgrid loop */
