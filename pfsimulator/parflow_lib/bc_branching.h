@@ -1,6 +1,10 @@
 #ifndef _BC_BRANCHING_H
 #define _BC_BRANCHING_H
 
+#include "overland_richards.h"
+#include "dirichlet_richards.h"
+#include "flux_richards.h"
+#include "richards_symm_correction.h"
 #include "problem_bc.h"
 
 /*****************************************************************************
@@ -17,6 +21,7 @@
 #define EXPAND_INDIRECTION(n) EXPAND_CASES_ ## n
 #define EXPAND_CASES(n) EXPAND_INDIRECTION(n)
 
+/* TODO: Replace PatchFaceSwitch
 #define DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v) \
   bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);         \
                                                                         \
@@ -24,11 +29,13 @@
   {                                                                     \
     case DirichletBC:                                                   \
     {                                                                   \
-      BCStructPatchLoopX(i, j, k, fdir2, ival, bc_struct, ipatch, is,   \
-      {                                              \
+      BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,         \
+      {                                             \
         ip = SubvectorEltIndex(p_sub, i, j, k);                         \
         value = bc_patch_values[ival];                                  \
-        PatchFaceSwitch(fdir2,                                          \
+      },                                                                \
+                          {},                                           \
+                          PatchFaceSwitch(fdir2,                      \
                         {pp[ip - 1] = value;},                          \
                         {pp[ip + 1] = value;},                          \
                         {pp[ip - sy_v] = value;},                       \
@@ -40,7 +47,7 @@
       break;                                                            \
     }                                                                   \
   }                                                                     \
-
+*/
 
 #define TemperatureContrib(cp, wp, ep, sop, np, lp, up, im, sy_m, sz_m, \
                            west_temp, east_temp, north_temp, south_temp, \
@@ -65,175 +72,6 @@
     np[im] += sym_north_temp;                                           \
     up[im] += sym_upper_temp;                                           \
   }
-
-/**
- *  @brief Switch macro for iterating over faces, to be used in conjunction with BCStructPatchLoopX
- *
- *  @note Need to make this more meaningful and useful
- *
- *  @param[in] fdir Face direction to switch on
- *  @param[in] L Expression to execute on Left face
- *  @param[in] R Expression to execute on Right face
- *  @param[in] D Expression to execute on Down face
- *  @param[in] U Expression to execute on Upper face
- *  @param[in] B Expression to execute on Back face
- *  @param[in] F Expression to execute on Front face
- *  @param[in] DEFAULT Expression to execute for default case
- **/
-#define PatchFaceSwitch(fdir, L, R, D, U, B, F, DEFAULT)  \
-  {                                                       \
-    switch (fdir)                                         \
-    {                                                     \
-      case GrGeomOctreeFaceL:                             \
-      {                                                   \
-        L;                                                \
-        break;                                            \
-      }                                                   \
-      case GrGeomOctreeFaceR:                             \
-      {                                                   \
-        R;                                                \
-        break;                                            \
-      }                                                   \
-      case GrGeomOctreeFaceD:                             \
-      {                                                   \
-        D;                                                \
-        break;                                            \
-      }                                                   \
-      case GrGeomOctreeFaceU:                             \
-      {                                                   \
-        U;                                                \
-        break;                                            \
-      }                                                   \
-      case GrGeomOctreeFaceB:                             \
-      {                                                   \
-        B;                                                \
-        break;                                            \
-      }                                                   \
-      case GrGeomOctreeFaceF:                             \
-      {                                                   \
-        F;                                                \
-        break;                                            \
-      }                                                   \
-      default:                                            \
-      {                                                   \
-        DEFAULT;                                          \
-        break;                                            \
-      }                                                   \
-    }                                                     \
-  }
-
-#define L830_lower(idx, pos, neg)                                       \
-  {                                                                     \
-    lower_cond = pp[idx + neg] - 0.5 * dz *                             \
-      Mean(z_mult_dat[idx], z_mult_dat[idx + pos + neg])                \
-      * dp[idx + neg] * gravity;                                        \
-  }
-
-#define L830_upper(idx, pos, neg)                         \
-  {                                                       \
-    upper_cond = pp[idx + pos] + 0.5 * dz *               \
-      Mean(z_mult_dat[idx], z_mult_dat[idx + pos + neg])  \
-      * dp[idx + pos] * gravity;                          \
-  }
-
-#define L830_prod_der(idx, offset)                    \
-  {                                                   \
-    prod_der = rpdp[idx + offset] * dp[idx + offset]  \
-      + rpp[ip + offset] * ddp[ip + offset];          \
-  }
-
-#define L830_prod_xtra(idx, offset)                   \
-  {                                                   \
-    prod_xtra = rpp[idx + offset] * dp[idx + offset]; \
-  }
-
-#define L830_XY_coeff(idx, pos, neg, ff, der, perm)          \
-  {                                                         \
-  coeff = dt * z_mult_dat[idx] * ff * (1.0 / der)           \
-    * PMean(pp[idx + neg], pp[idx + pos],                   \
-            perm[idx + neg], perm[idx + pos]) / viscosity;  \
-  }
-
-#define L830_XY_calc(op, idx, jdx, pos, neg, meanA, meanB, coeff_sign)  \
-  {                                                                    \
-    op[jdx] = (coeff_sign * coeff) * diff                              \
-      * RPMean(pp[idx + neg], pp[idx + pos], meanA, meanB);            \
-  }
-
-#define L830_Z_coeff(idx, ff, pos, neg)                                 \
-  {                                                                     \
-    coeff = dt * ff * (1.0 / (dz * Mean(z_mult_dat[idx],                \
-                                        z_mult_dat[idx + pos + neg])))  \
-      * PMeanDZ(permzp[idx + neg], permzp[idx + pos],                   \
-                z_mult_dat[idx + neg], z_mult_dat[idx + pos])           \
-      / viscosity;                                                      \
-  }
-
-#define L830_Z_calc(op, idx, offset, prod_der_mean, prod_xtra_mean)     \
-  {                                                                     \
-    op[idx] = -coeff * (diff * prod_der_mean - gravity * 0.5 * dz *     \
-                        Mean(z_mult_dat[idx], z_mult_dat[idx + offset]) * \
-                        ddp[idx] * prod_xtra_mean);                     \
-  }
-
-/**
- *  @brief Symmetric boundary condition corrections in richards jacobian in XY plane
- *
- *  @param[in] op Submatrix Stencil Data to write into
- *  @param[in] idx Base index for reading out of SubvectorData
- *  @param[in] jdx Index to write into op
- *  @param[in] ff ffx, ffy, or ffz to use
- *  @param[in] pos Integer offset in positive direction
- *  @param[in] neg Integer offset in negative direction
- *  @param[in] der Derivative to use (dx, dy, dz)
- *  @param[in] perm Permability data to use (permxp, permzp, etc)
- *  @param[in] meanA Value to use for when RPMean is true
- *  @param[in] meanB Value to use for when RPMean is false
- *  @param[in] coeff_sign Sign to use on coefficient value in final calculation
- **/
-#define L830_XY(op, idx, jdx, ff, pos, neg, der, perm, meanA, meanB, coeff_sign)  \
-  {                                                                     \
-    diff = pp[idx + neg] - pp[idx + pos];                               \
-    L830_prod_der(idx, pos + neg);                                      \
-    L830_XY_coeff(idx, pos, neg, ff, der, perm);                         \
-    L830_XY_calc(op, idx, jdx, pos, neg, meanA, meanB, coeff_sign);      \
-}
-
-/**
- *  @brief Symmetric boundary condition corrections in richards jacobian in Z plane
- *
- *  @param[in] op Submatrix Stencil Data to write into
- *  @param[in] idx Base index for reading out of SubvectorData
- *  @param[in] jdx Index to write into op
- *  @param[in] ff ffx, ffy, or ffz to use
- *  @param[in] pos Integer offset in positive direction
- *  @param[in] neg Integer offset in negative direction
- *  @param[in] prod_der_mean RPMean with prod_der value used in final calculation
- *  @param[in] prod_xtra_mean RPMean with prod_xtra value used in final calculation
- **/
-#define L830_Z(op, idx, jdx, ff, pos, neg, prod_der_mean, prod_xtra_mean) \
-  {                                                                     \
-    L830_lower(idx, pos, neg);                                          \
-    L830_upper(idx, pos, neg);                                          \
-    diff = lower_cond - upper_cond;                                     \
-    L830_prod_der(idx, pos + neg);                                      \
-    L830_prod_xtra(idx, pos + neg);                                     \
-    L830_Z_coeff(idx, ff, pos, neg);                                    \
-    L830_Z_calc(op, jdx, pos + neg, prod_der_mean, prod_xtra_mean);     \
-  }
-
-#define L830_CALC_Left L830_XY(wp, ip, im, ffx, 0, -1, dx, permxp, prod_der, 0.0, 1.0)
-#define L830_CALC_Right L830_XY(ep, ip, im, ffx, 1,  0, dx, permxp, 0.0, prod_der, 1.0)
-#define L830_CALC_Up L830_XY(sop, ip, im, ffy, 0, -sy_v, dy, permyp, prod_der, 0.0, -1.0)
-#define L830_CALC_Down L830_XY(np, ip, im, ffy, sy_v, 0, dy, permyp, 0.0, prod_der, -1.0)
-#define L830_CALC_Front L830_Z(lp, ip, im, ffz, 0, -sz_v, \
-                               RPMean(lower_cond, upper_cond, prod_der, 0.0), \
-                               RPMean(lower_cond, upper_cond, prod_xtra, prod))
-#define L830_CALC_Back L830_Z(up, ip, im, ffz, sz_v, 0, \
-                              RPMean(lower_cond, upper_cond, 0.0, prod_der), \
-                              RPMean(lower_cond, upper_cond, prod, prod_xtra))
-
-#define L830_CALC(face) L830_CALC_##face
 
 
 /**
@@ -324,6 +162,15 @@
   By merely writing this macro, I am a horrible person who deserves terrible things.
 */
 
+
+#define Left 0
+#define Right 1
+#define Up 2
+#define Down 3
+#define Front 4
+#define Back 5
+#define FACE(a, b) XCASE(a, b)
+
 #define WITH_BODY(_case, body)                  \
   case _case:                                   \
   {                                             \
@@ -335,7 +182,8 @@
   case _case:
 
 #define CASE_BODY_SELECTION(arg1, arg2, arg3, ...) arg3
-#define XCASE(...) CASE_BODY_SELECTION(__VA_ARGS__, WITH_BODY, ONLY_CASE)(__VA_ARGS__)
+#define XCASE(...) \
+  CASE_BODY_SELECTION(__VA_ARGS__, WITH_BODY, ONLY_CASE)(__VA_ARGS__)
 
 #define EXPAND_CASES_1(a, ...) a
 #define EXPAND_CASES_2(a, ...) a EXPAND_CASES_1(__VA_ARGS__)
@@ -347,9 +195,80 @@
 #define XSWITCH(key, ...)                                     \
   switch (key) {																							\
 		EXPAND_CASES(COUNT_VARARGS(__VA_ARGS__))(__VA_ARGS__)     \
-    default:                                                  \
+  }
+
+
+// More silly indirection to expand the actual equation bodies
+#define DoRichards_SymmCorrection(J_sub, p_sub, rpp, dp, i, j, k)       \
+  DoRichards_SymmCorrection_(Richards_SymmCorrection(p_sub, J_sub, rpp, dp, i, j, k))
+
+#define DoRichards_SymmCorrection_(equations)  DoRichards_SymmCorrection__(equations)
+
+#define DoRichards_SymmCorrection__(prologue, epilogue, ...)    \
+  ForBCStructNumPatches(ipatch, bc_struct)                     \
+  {                                                            \
+    BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,  \
+                        prologue, epilogue, __VA_ARGS__);      \
+  }
+
+#define DoRichards_BC_Contrib(equations)                            \
+  ForBCStructNumPatches(ipatch, bc_struct)                          \
+  {                                                                 \
+    bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);   \
+    switch (BCStructBCType(bc_struct, ipatch))                      \
+    {                                                               \
+      equations;                                                    \
+    }                                                               \
+  }
+
+#define EXPAND_EQUATIONS(prologue, epilogue, ...)           \
+  BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, \
+                      prologue, epilogue, __VA_ARGS__);     \
+
+#define EXPAND_EQUATIONS_(equations) EXPAND_EQUATIONS(equations)
+
+#define ApplyPatch(_case, equations)                          \
+  case _case:                                                 \
+  {                                                           \
+    EXPAND_EQUATIONS(equations);                              \
     break;                                                    \
   }
 
+#define ApplyPatchSubtypes(_case, _subcase, equations) \
+  case _case:                                    \
+  {                                              \
+    switch(_subcase)                             \
+    {                                            \
+      equations;                               \
+    }                                            \
+  }
+
+#define PatchSubtype(_case, equations) \
+  case _case:                          \
+  {                                    \
+    EXPAND_EQUATIONS(equations);       \
+    break;                             \
+  }
+
+#define DoRichardsDirichlet_Contrib(equations)  \
+  case DirichletBC:                             \
+  {                                             \
+    DoRichardsDirichlet_Contrib_(equations);    \
+    break;                                      \
+  }
+#define DoRichardsDirichlet_Contrib_(prologue, epilogue, ...) \
+  BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,   \
+                      prologue, epilogue, __VA_ARGS__);       \
+
+#define DoRichardsFlux_Contrib(equations)  \
+  case FluxBC:                             \
+  {                                        \
+    DoRichardsFlux_Contrib_(equations);    \
+    break;                                 \
+  }
+
+#define DoRichardsFlux_Contrib_(prologue, epilogue, ...) \
+  BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, \
+                      prologue, epilogue, __VA_ARGS__);
 
 #endif // _BC_BRANCHING_H

@@ -44,6 +44,9 @@
 #include "llnltyps.h"
 #include "assert.h"
 
+#include "overland_richards.h"
+#include "dirichlet_richards.h"
+#include "richards_symm_correction.h"
 #include "bc_branching.h"
 #include "timer.h"
 
@@ -495,9 +498,9 @@ void    RichardsJacobianEval(
 
     ForBCStructNumPatches(ipatch, bc_struct)
     {
-      DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
+      //DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
 
-      /*
+
       bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
 
       switch (BCStructBCType(bc_struct, ipatch))
@@ -513,7 +516,7 @@ void    RichardsJacobianEval(
             break;
           }
       }
-      */
+
     }          /* End ipatch loop */
   }            /* End subgrid loop */
 
@@ -626,106 +629,7 @@ void    RichardsJacobianEval(
       x_dir_g_c = Mean(gravity * cos(atan(x_ssl_dat[ioo])), gravity * cos(atan(x_ssl_dat[ioo + 1])));
       y_dir_g = Mean(gravity * sin(atan(y_ssl_dat[ioo])), gravity * sin(atan(y_ssl_dat[ioo + sy_v])));
       y_dir_g_c = Mean(gravity * cos(atan(y_ssl_dat[ioo])), gravity * cos(atan(y_ssl_dat[ioo + sy_v])));
-      /*
-      double x_diff = pp[ip] - pp[ip + 1];
-      double x_dir = (x_diff / dx) * x_dir_g_c - x_dir_g;
-      double y_diff = pp[ip] - pp[ip + sy_v];
-      double y_dir = (y_diff / dy) * y_dir_g_c - y_dir_g;
 
-      sep = (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]));
-      lower_cond = pp[ip] / sep
-        - (z_mult_dat[ip] / (z_mult_dat[ip] + z_mult_dat[ip + sz_v]))
-        * dp[ip] * gravity;
-      upper_cond = pp[ip + sz_v] / sep
-        + (z_mult_dat[ip + sz_v] / (z_mult_dat[ip] + z_mult_dat[ip + sz_v]))
-        * dp[ip + sz_v] * gravity;
-      double z_diff = lower_cond - upper_cond;
-
-      x_coeff = dt * ffx * (1.0 / dx) * z_mult_dat[ip]
-        * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
-        / viscosity;
-      y_coeff = dt * ffy * (1.0 / dy) * z_mult_dat[ip]
-        * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
-        / viscosity;
-      z_coeff = dt * ffz
-        * PMeanDZ(permzp[ip], permzp[ip + sz_v], z_mult_dat[ip], z_mult_dat[ip + sz_v])
-        / viscosity;
-
-
-
-      // a - b >= 0 ? c : d
-
-      if (x_dir >= 0) {
-        sym_west_temp = (-x_coeff * prod * x_dir_g_c);
-        west_temp = (-x_coeff * x_diff * prod_der * x_dir_g_c + sym_west_temp)
-          + (x_coeff * dx * prod_der * x_dir_g);
-
-        sym_east_temp = -x_coeff * prod * x_dir_g_c;
-        east_temp = sym_east_temp; //Rest of equations are 0 from RPMean
-      } else {
-        sym_west_temp = (-x_coeff * prod_rt * x_dir_g_c);
-        west_temp = sym_west_temp;
-
-        sym_east_temp = -x_coeff * prod_rt * x_dir_g_c;
-        east_temp = (x_coeff * x_diff * prod_rt_der) * x_dir_g_c + sym_east_temp
-          -(x_coeff * dx * prod_rt_der * x_dir_g);
-      }
-
-      if (y_dir >= 0) {
-        sym_south_temp = -y_coeff * prod * y_dir_g_c;
-        south_temp = (-y_coeff * y_diff * prod_der * y_dir_g_c + sym_south_temp)
-          + (y_coeff * dy * prod_der * y_dir_g);
-
-        sym_north_temp = y_coeff * -prod * y_dir_g_c;
-        north_temp = sym_north_temp; // Rest of equations are 0 from RPMean
-      } else {
-        sym_south_temp = -y_coeff * prod_no * y_dir_g_c;
-        south_temp = sym_south_temp;
-
-        sym_north_temp = y_coeff * prod_no * y_dir_g_c;
-        north_temp = (y_coeff * y_diff * prod_no_der * y_dir_g_c + sym_north_temp)
-          -(y_coeff * dy * prod_no_der * y_dir_g);
-      }
-
-      if (z_diff >= 0) {
-        sym_lower_temp = -z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-          * prod;
-
-      lower_temp = -z_coeff
-                   * (z_diff * prod_der
-                      + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
-                         * prod))
-                   + sym_lower_temp;
-
-      sym_upper_temp = z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                       * -prod;
-
-      upper_temp = z_coeff
-                   * (-gravity * 0.5 * dz
-                      * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip + sz_v]
-                         * prod)
-                   + sym_upper_temp;
-      } else {
-        sym_lower_temp = -z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-          * prod_up;
-        lower_temp = -z_coeff
-          * (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
-                * prod)
-          + sym_lower_temp;
-
-        sym_upper_temp = z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-          * -prod_up;
-        upper_temp = z_coeff
-          * (z_diff * prod_up_der
-             + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip + sz_v]
-                * prod_up))
-          + sym_upper_temp;
-      }
-      */
-      /*TemperatureContrib(cp, wp, ep, sop, np, lp, up, im, sy_m, sz_m,
-                         west_temp, east_temp, north_temp, south_temp,
-                         upper_temp, lower_temp, symm_part,
-                         sym_east_temp, sym_north_temp, sym_upper_temp);*/
       /* diff >= 0 implies flow goes left to right */
       diff = pp[ip] - pp[ip + 1];
       updir = (diff / dx) * x_dir_g_c - x_dir_g;
@@ -846,7 +750,7 @@ void    RichardsJacobianEval(
   }  //
 
   /*  Calculate correction for boundary conditions */
-
+  double mult_dat_mean = 0.0;
   if (symm_part)
   {
     /*  For symmetric part only, we first adjust coefficients of normal */
@@ -908,29 +812,8 @@ void    RichardsJacobianEval(
       permzp = SubvectorData(permz_sub);
 
 
-      double prod_xtra; // Used in L830_Z macro instead of separate prod_lo and prod_up values
-      ForBCStructNumPatches(ipatch, bc_struct)
-      {
-        BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
-        {
-          ip = SubvectorEltIndex(p_sub, i, j, k);
-          im = SubmatrixEltIndex(J_sub, i, j, k);
-
-          // SGS added this as prod was not being set to anything. Check with carol.
-          prod = rpp[ip] * dp[ip];
-        },
-        {
-          // Empty epilogue body
-        },
-          XCASE(0, L830_CALC(Left)),
-          XCASE(1, L830_CALC(Right)),
-          XCASE(2, L830_CALC(Up)),
-          XCASE(3, L830_CALC(Down)),
-          XCASE(4, L830_CALC(Front)),
-          XCASE(5, L830_CALC(Back))
-        );       /* End Patch Loop */
-      }           /* End ipatch loop */
-    }             /* End subgrid loop */
+      DoRichards_SymmCorrection(J_sub, p_sub, rpp, dp, i, j, k);
+    }
   }                  /* End if symm_part */
 
   ForSubgridI(is, GridSubgrids(grid))
@@ -1011,253 +894,17 @@ void    RichardsJacobianEval(
     permyp = SubvectorData(permy_sub);
     permzp = SubvectorData(permz_sub);
 
-    ForBCStructNumPatches(ipatch, bc_struct)
-    {
-      bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
-
-      switch (BCStructBCType(bc_struct, ipatch))
-      {
-        case DirichletBC:
-        {
-          BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
-          { // Prologue body
-            ip = SubvectorEltIndex(p_sub, i, j, k);
-
-            value = bc_patch_values[ival];
-
-            PFModuleInvokeType(PhaseDensityInvoke, density_module,
-                               (0, NULL, NULL, &value, &den_d, CALCFCN));
-            PFModuleInvokeType(PhaseDensityInvoke, density_module,
-                               (0, NULL, NULL, &value, &dend_d, CALCDER));
-
-            ip = SubvectorEltIndex(p_sub, i, j, k);
-            im = SubmatrixEltIndex(J_sub, i, j, k);
-
-            prod = rpp[ip] * dp[ip];
-            prod_der = rpdp[ip] * dp[ip] + rpp[ip] * ddp[ip];
-          },
-          {
-            // Epilogue body
-            cp[im] += op[im];
-            cp[im] -= o_temp;
-            op[im] = 0.0;
-          },
-            XCASE(0, L970_Dirichlet(Left))
-            XCASE(1, L970_Dirichlet(Right)),
-            XCASE(2, L970_Dirichlet(Up)),
-            XCASE(3, L970_Dirichlet(Down)),
-            XCASE(4, L970_Dirichlet(Front)),
-            XCASE(5, L970_Dirichlet(Back))
-          );
-
-          break;
-        }               /* End DirichletBC case */
-
-        case FluxBC:
-        {
-          BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
-          {
-            //Empty prologue
-          },
-          {
-            im = SubmatrixEltIndex(J_sub, i, j, k);
-            cp[im] += op[im];
-            op[im] = 0.0;
-          },
-            XCASE(0, {op = wp;}),
-            XCASE(1, {op = ep;}),
-            XCASE(2, {op = sop;}),
-            XCASE(3, {op = np;}),
-            XCASE(4, {op = lp;}),
-            XCASE(5, {op = up;})
-          );
-
-          break;
-        }         /* End fluxbc case */
-
-        case OverlandBC:     //sk
-        {
-          BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
-          {
-            //Empty prologue
-          },
-          {
-            im = SubmatrixEltIndex(J_sub, i, j, k);
-            cp[im] += op[im];
-            op[im] = 0.0;       //zero out entry in row of Jacobian
-          },
-            XCASE(0, {op = wp;}),
-            XCASE(1, {op = ep;}),
-            XCASE(2, {op = sop;}),
-            XCASE(3, {op = np;}),
-            XCASE(4, {op = lp;}),
-            XCASE(5,
-                  {
-                    op = up;
-                    if (!ovlnd_flag)
-                    {
-                      ip = SubvectorEltIndex(p_sub, i, j, k);
-                      if ((pp[ip]) > 0.0)
-                      {
-                        ovlnd_flag = 1;
-                      }
-                    }
-                  })
-          );
-
-          switch (public_xtra->type)
-          {
-            case no_nonlinear_jacobian:
-            case not_set:
-            {
-              assert(1);
-            }
-
-            case simple:
-            {
-              BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-              {
-                if (fdir[2] == 1)
-                {
-                  ip = SubvectorEltIndex(p_sub, i, j, k);
-                  io = SubvectorEltIndex(p_sub, i, j, 0);
-                  im = SubmatrixEltIndex(J_sub, i, j, k);
-
-                  if ((pp[ip]) > 0.0)
-                  {
-                    cp[im] += (vol * z_mult_dat[ip]) / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
-                  }
-                }
-              });
-              break;
-            }
-
-            case overland_flow:
-            {
-              /* Get overland flow contributions - DOK*/
-              // SGS can we skip this invocation if !overland_flow?
-              //PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
-              //		(grid, is, bc_struct, ipatch, problem_data, pressure,
-              //		 ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
-
-              if (overlandspinup == 1)
-              {
-                /* add flux loss equal to excess head  that overwrites the prior overland flux */
-                BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-                {
-                  if (fdir[2] == 1)
-                  {
-                    ip = SubvectorEltIndex(p_sub, i, j, k);
-                    io = SubvectorEltIndex(p_sub, i, j, 0);
-                    im = SubmatrixEltIndex(J_sub, i, j, k);
-                    vol = dx * dy * dz;
-
-                    if ((pp[ip]) >= 0.0)
-                    {
-                      cp[im] += (vol / dz) * dt * (1.0 + 0.0);                     //LEC
-                    }
-                    else
-                    {
-                      cp[im] += 0.0;
-                    }
-                  }
-                });
-              }
-              else
-              {
-                /* Get overland flow contributions for using kinematic or diffusive - LEC */
-                if (diffusive == 0)
-                {
-                  PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
-                                     (grid, is, bc_struct, ipatch, problem_data, pressure,
-                                      ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
-                }
-                else
-                {
-                  /* Test running Diffuisve calc FCN */
-                  //double *dummy1, *dummy2, *dummy3, *dummy4;
-                  //PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff, (grid, is, bc_struct, ipatch, problem_data, pressure,
-                  //                                             ke_der, kw_der, kn_der, ks_der,
-                  //       dummy1, dummy2, dummy3, dummy4,
-                  //                                                    NULL, NULL, CALCFCN));
-
-                  PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff,
-                                     (grid, is, bc_struct, ipatch, problem_data, pressure,
-                                      ke_der, kw_der, kn_der, ks_der,
-                                      kens_der, kwns_der, knns_der, ksns_der, NULL, NULL, CALCDER));
-                }
-              }
-
-
-              break;
-            }
-          }
-
-          /*
-          XSWITCH(public_xtra->type, 4,
-                  XCASE(no_nonlinear_jacobian),
-                  XCASE(not_set, {assert(1);}),
-                  XCASE(simple,
-                        BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-                        {
-                          if (fdir[2] == 1)
-                          {
-                            ip = SubvectorEltIndex(p_sub, i, j, k);
-                            io = SubvectorEltIndex(p_sub, i, j, 0);
-                            im = SubmatrixEltIndex(J_sub, i, j, k);
-
-                            if ((pp[ip]) > 0.0)
-                            {
-                              cp[im] += (vol * z_mult_dat[ip])
-                                / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
-                            }
-                          }
-                        })),
-                  XCASE(overland_flow,
-                        if (overlandspinup == 1)
-                        {
-                          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-                          {
-                            if (fdir[2] == 1)
-                            {
-                              ip = SubvectorEltIndex(p_sub, i, j, k);
-                              io = SubvectorEltIndex(p_sub, i, j, 0);
-                              im = SubmatrixEltIndex(J_sub, i, j, k);
-                              vol = dx * dy * dz;
-
-                              if ((pp[ip]) >= 0.0)
-                              {
-                                cp[im] += (vol / dz) * dt * (1.0 + 0.0);                     //LEC
-                              }
-                              else
-                              {
-                                cp[im] += 0.0;
-                              }
-                            }
-                          });
-                        }
-                        else
-                        {
-                          if (diffusive == 0)
-                          {
-                            PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
-                                               (grid, is, bc_struct, ipatch, problem_data, pressure,
-                                                ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
-                          }
-                          else
-                          {
-                            PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff,
-                                               (grid, is, bc_struct, ipatch, problem_data, pressure,
-                                                ke_der, kw_der, kn_der, ks_der,
-                                                kens_der, kwns_der, knns_der, ksns_der, NULL, NULL, CALCDER));
-                          }
-                        }));
-          */
-
-        }         /* End overland flow case */
-      }        /* End switch BCtype */
-    }          /* End ipatch loop */
-  }            /* End subgrid loop */
+    DoRichards_BC_Contrib({
+         ApplyPatch(DirichletBC, Richards_DirichletBC_Contrib);
+         ApplyPatch(FluxBC, Richards_Flux_Contrib);
+         ApplyPatchSubtypes(OverlandBC, public_xtra->type, {
+             PatchSubtype(no_nonlinear_jacobian, Richards_Overland_Contrib_Default);
+             PatchSubtype(not_set, Richards_Overland_Contrib_Default);
+             PatchSubtype(simple, Richards_Overland_Contrib_Simple);
+             PatchSubtype(overland_flow, Richards_Overland_Contrib_Spinup);
+           });
+      });
+  }
 
   PFModuleInvokeType(RichardsBCInternalInvoke, bc_internal, (problem, problem_data, NULL, J, time,
                                                              pressure, CALCDER));
