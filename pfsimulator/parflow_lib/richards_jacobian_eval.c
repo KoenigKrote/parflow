@@ -894,8 +894,112 @@ void    RichardsJacobianEval(
     permyp = SubvectorData(permy_sub);
     permzp = SubvectorData(permz_sub);
 
+		/* Maybe new style */
+		DoRichards_BC_Contrib({
+				ApplyPatch(DirichletBC,
+									 {
+										 value = bc_patch_values[ival];
+										 ip = SubvectorEltIndex(p_sub, i, j ,k);
+										 im = SubmatrixEltIndex(J_sub, i, j, k);
+										 prod = rpp[ip] * dp[ip];
+										 prod_der = rpdp[ip] * dp[ip]; + rpp[ip] * ddp[ip];
+										 PFModuleInvokeType(PhaseDensityInvoke, density_module,
+																				(0, NULL, NULL, &value, &den_d, CALCFCN));
+										 PFModuleInvokeType(PhaseDensityInvoke, density_module,
+																				(0, NULL, NULL, &value, &dend_d, CALCDER));
+									 },
+									 {
+										 cp[im] += op[im];
+										 cp[im] -= o_temp;
+										 op[im] = 0.0;
+									 },
+									 FACE(Left,
+												{
+													op = wp;
+													coeff = dt * ffx * z_mult_dat[ip]
+														* (2.0 / dx) * permxp[ip] / viscosity;
+													prod_val = rpp[ip - 1] * den_d;
+													diff = value - pp[ip];
+													o_temp = coeff
+														* (diff * RPMean(value, pp[ip], 0.0, prod_der)
+															 - RPMean(value, pp[ip], prod_val, prod));
+												}),
+									 FACE(Right,
+												{
+													op = ep;
+													coeff = dt * ffx * z_mult_dat[ip]
+														* (2.0 / dx) * permxp[ip] / viscosity;
+													prod_val = rpp[ip + 1] * den_d;
+													diff = pp[ip] - value;
+													o_temp = -coeff
+														* (diff * RPMean(value, pp[ip], prod_der, 0.0)
+															 + RPMean(value, pp[ip], prod, prod_val));
+												}),
+									 FACE(Up,
+												{
+													op = sop;
+													coeff = dt * ffy * z_mult_dat[ip]
+														* (2.0 / dy) * permyp[ip] / viscosity;
+													prod_val = rpp[ip - sy_v] * den_d;
+													diff = value - pp[ip];
+													o_temp = coeff
+														* (diff * RPMean(value, pp[ip], 0.0, prod_der)
+															 - RPMean(value, pp[ip], prod_val, prod));
+												}),
+									 FACE(Down,
+												{
+													op = np;
+													coeff = dt * ffx * z_mult_dat[ip]
+														* (2.0 / dx) * permxp[ip] / viscosity;
+													prod_val = rpp[ip + sy_v] * den_d;
+													diff = pp[ip] - value;
+													o_temp = -coeff
+														* (diff * RPMean(value, pp[ip], prod_der, 0.0)
+															 + RPMean(value, pp[ip], prod, prod_val));
+												}),
+									 FACE(Front,
+												{
+													op = lp;
+													coeff = dt * ffz *
+														(2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+														* permzp[ip] / viscosity;
+													prod_val = rpp[ip - sz_v] * den_d;
+													lower_cond = value - 0.5 * dz * z_mult_dat[ip] * den_d * gravity;
+													upper_cond = pp[ip] + 0.5 * dz * z_mult_dat[ip] * dp[ip] * gravity;
+													diff = lower_cond - upper_cond;
+													o_temp = coeff * (diff * RPMean(lower_cond, upper_cond, 0.0, prod_der)
+																						+ ((-1.0 - gravity * 0.5 * dz
+																								* Mean(z_mult_dat[ip], z_mult_dat[ip - sz_v]) * ddp[ip])
+																							 * RPMean(lower_cond, upper_cond, prod_val, prod)));
+												}),
+									 FACE(Back,
+									 {
+									 op = up;
+									 coeff = dt * ffz *
+									 (2.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+									 * permzp[ip] / viscosity;
+									 prod_val = rpp[ip + sz_v] * den_d;
+									 lower_cond = pp[ip] - 0.5 * dz
+									 * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])
+									 * dp[ip] * gravity;
+									 upper_cond = value + 0.5 * dz
+									 * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])
+									 * den_d * gravity;
+									 diff = lower_cond - upper_cond;
+									 o_temp = -coeff * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
+									 + ((1.0 - gravity * 0.5 * dz
+									 * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]) * ddp[ip])
+									 * RPMean(lower_cond, upper_cond, prod, prod_val)));
+									 })
+									 )
+					/* etc etc blah blah other patches form like this */
+					});
+	}
+
+
+		/* Old style */
     DoRichards_BC_Contrib({
-         ApplyPatch(DirichletBC, Richards_DirichletBC_Contrib);
+				ApplyPatch(DirichletBC, Richards_DirichletBC_Contrib);
          ApplyPatch(FluxBC, Richards_Flux_Contrib);
          ApplyPatchSubtypes(OverlandBC, public_xtra->type, {
              PatchSubtype(no_nonlinear_jacobian, Richards_Overland_Contrib_Default);
