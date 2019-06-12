@@ -44,10 +44,8 @@
 #include "llnltyps.h"
 #include "assert.h"
 
-#include "overland_richards.h"
-#include "dirichlet_richards.h"
-#include "richards_symm_correction.h"
 #include "bc_branching.h"
+#include "bc_richards.h"
 #include "timer.h"
 
 /*---------------------------------------------------------------------
@@ -496,28 +494,8 @@ void    RichardsJacobianEval(
 
     pp = SubvectorData(p_sub);
 
-    ForBCStructNumPatches(ipatch, bc_struct)
-    {
-      //DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
 
-
-      bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
-
-      switch (BCStructBCType(bc_struct, ipatch))
-      {
-        case DirichletBC:
-          {
-            BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
-            {
-              ip = SubvectorEltIndex(p_sub, i, j, k);
-              value = bc_patch_values[ival];
-              pp[ip + fdir[0] * 1 + fdir[1] * sy_v + fdir[2] * sz_v] = value;
-            });
-            break;
-          }
-      }
-
-    }          /* End ipatch loop */
+    Do_DirichletBCPressureContrib(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
   }            /* End subgrid loop */
 
   /* Calculate rel_perm and rel_perm_der */
@@ -644,7 +622,7 @@ void    RichardsJacobianEval(
 
       west_temp = (-x_coeff * diff
                    * RPMean(updir, 0.0, prod_der, 0.0)) * x_dir_g_c
-                  + sym_west_temp;
+        + sym_west_temp;
 
       west_temp += (x_coeff * dx * RPMean(updir, 0.0, prod_der, 0.0)) * x_dir_g; //@RMM TFG contributions, non sym
 
@@ -811,7 +789,7 @@ void    RichardsJacobianEval(
       permyp = SubvectorData(permy_sub);
       permzp = SubvectorData(permz_sub);
 
-      DoRichards_SymmCorrection
+      Do_RichardsSymmCorrection
         (
          PROLOGUE({
              ip = SubvectorEltIndex(p_sub, i, j, k);
@@ -993,8 +971,7 @@ void    RichardsJacobianEval(
     permyp = SubvectorData(permy_sub);
     permzp = SubvectorData(permz_sub);
 
-
-    DoRichards_BC_Contrib({
+    Do_RichardsBCContrib({
         ApplyPatch(DirichletBC,
                    PROLOGUE({
                        value = bc_patch_values[ival];
@@ -1171,10 +1148,10 @@ void    RichardsJacobianEval(
             // TODO: Add overland_flow spinup and kinematic branches
           })
       });
-
         /*
+
     DoRichards_BC_Contrib({
-         ApplyPatch(DirichletBC, Richards_DirichletBC_Contrib);
+				ApplyPatch(DirichletBC, Richards_DirichletBC_Contrib);
          ApplyPatch(FluxBC, Richards_Flux_Contrib);
          ApplyPatchSubtypes(OverlandBC, public_xtra->type, {
              PatchSubtype(no_nonlinear_jacobian, Richards_Overland_Contrib_Default);

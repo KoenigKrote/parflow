@@ -191,7 +191,8 @@ pfset Gravity                             1.0
 pfset TimingInfo.BaseUnit                 1.0
 pfset TimingInfo.StartCount               0.0
 pfset TimingInfo.StartTime                0.0
-pfset TimingInfo.StopTime                 12.0
+# 12.0 for small, 72 for big
+pfset TimingInfo.StopTime                 144.0
 pfset TimingInfo.DumpInterval             24.0
 pfset TimeStep.Type                       Constant
 pfset TimeStep.Value                      1.0

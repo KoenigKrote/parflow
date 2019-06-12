@@ -70,26 +70,7 @@
   BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, \
                       prologue, epilogue, __VA_ARGS__);     \
 
-/* Main calling case for Patch loops */
-#define ApplyPatch(_case, equations)                          \
-  case _case:                                                 \
-  {                                                           \
-    EXPAND_EQUATIONS(equations);                              \
-    break;                                                    \
-  }
 
-/* For nested switch cases */
-/* @TODO: This is being replaced by giving each subtype and actual enum */
-#define ApplyPatchSubtypes(_case, _subcase, equations) \
-  case _case:                                    \
-  {                                              \
-    switch(_subcase)                             \
-    {                                            \
-      equations;                               \
-    }                                            \
-  }
-
-#define PatchSubtype(_case, equations) ApplyPatch(_case, equations)
 
 
 #if 0
@@ -174,45 +155,7 @@
   }
 
 #define L970_Dirichlet(face) L970_Dirichlet_##face
-#endif
+#endif // #if 0
 
-
-#define DoRichards_SymmCorrection(prologue, epilogue, ...)     \
-  ForBCStructNumPatches(ipatch, bc_struct)                     \
-  {                                                            \
-    BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,  \
-                        prologue, epilogue, __VA_ARGS__);      \
-  }
-
-#define DoRichards_BC_Contrib(equations)                            \
-  ForBCStructNumPatches(ipatch, bc_struct)                          \
-  {                                                                 \
-    bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);   \
-    switch (BCStructBCType(bc_struct, ipatch))                      \
-    {                                                               \
-      equations;                                                    \
-    }                                                               \
-  }
-
-#define DoRichardsDirichlet_Contrib(equations)  \
-  case DirichletBC:                             \
-  {                                             \
-    DoRichardsDirichlet_Contrib_(equations);    \
-    break;                                      \
-  }
-#define DoRichardsDirichlet_Contrib_(prologue, epilogue, ...) \
-  BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,   \
-                      prologue, epilogue, __VA_ARGS__);       \
-
-#define DoRichardsFlux_Contrib(equations)  \
-  case FluxBC:                             \
-  {                                        \
-    DoRichardsFlux_Contrib_(equations);    \
-    break;                                 \
-  }
-
-#define DoRichardsFlux_Contrib_(prologue, epilogue, ...) \
-  BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, \
-                      prologue, epilogue, __VA_ARGS__);
 
 #endif // _BC_BRANCHING_H
