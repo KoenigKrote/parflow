@@ -79,6 +79,68 @@ typedef struct {
 #define ForBCStructNumPatches(ipatch, bc_struct)                      \
 	for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
 
+#define BCStructCollectPatches(i, j, k, fdir, ival, bc_struct, ipatch, is, list, body)\
+  {                                                                     \
+    GrGeomSolid  *PV_gr_domain = BCStructGrDomain(bc_struct);           \
+    int PV_patch_index = BCStructPatchIndex(bc_struct, ipatch);         \
+    Subgrid      *PV_subgrid = BCStructSubgrid(bc_struct, is);          \
+                                                                        \
+    int PV_r = SubgridRX(PV_subgrid);                                   \
+    int PV_ix = SubgridIX(PV_subgrid);                                  \
+    int PV_iy = SubgridIY(PV_subgrid);                                  \
+    int PV_iz = SubgridIZ(PV_subgrid);                                  \
+    int PV_nx = SubgridNX(PV_subgrid);                                  \
+    int PV_ny = SubgridNY(PV_subgrid);                                  \
+    int PV_nz = SubgridNZ(PV_subgrid);                                  \
+                                                                        \
+    ival = 0;                                                           \
+    GrGeomCollectPatchLoop(i, j, k, fdir, PV_gr_domain, PV_patch_index, \
+                           PV_r, PV_ix, PV_iy, PV_iz, PV_nx, PV_ny, PV_nz, \
+                           list,                                        \
+                           {                                            \
+                             body;                                      \
+                             ival++;                                    \
+                           });                                          \
+  }
+
+#define BCStructPatchLoop_Collected(ipatch, list, node, i, j, k, prologue, epilogue, ...) \
+  {                                                                     \
+    node = list[(ipatch)]->next;                                        \
+    while (node != NULL) {                                              \
+      GrGeomOctree *PV_node = node->_node;                              \
+      if (PV_node == NULL)                                              \
+        fprintf(stderr, "Node is null\n");                              \
+      if (node->is_single) {                                            \
+        i = node->i;                                                    \
+        j = node->j;                                                    \
+        k = node->k;                                                    \
+        for (int PV_f = 0; PV_f < GrGeomOctreeNumFaces; PV_f++)         \
+          if (GrGeomOctreeHasFace(PV_node, PV_f))                       \
+          {                                                             \
+            prologue;                                                   \
+            XSWITCH(PV_f, __VA_ARGS__);                                 \
+            epilogue;                                                   \
+          }                                                             \
+      } else {                                                          \
+        for (k = node->izl; k < node->izu; k++) {                       \
+          for (j = node->iyl; j < node->iyu; j++) {                     \
+            for (i = node->ixl; i < node->ixu; i++) {                   \
+              for (int PV_f = 0; PV_f < GrGeomOctreeNumFaces; PV_f++)   \
+                if (GrGeomOctreeHasFace(PV_node, PV_f))                 \
+                {                                                       \
+                  prologue;                                             \
+                  XSWITCH(PV_f, __VA_ARGS__);                           \
+                  epilogue;                                             \
+                }                                                       \
+            }                                                           \
+          }                                                             \
+        }                                                               \
+      }                                                                 \
+      node = node->next;                                                \
+    }                                                                   \
+  }
+
+
 /*--------------------------------------------------------------------------
  * Experimental Looping macro:
  *--------------------------------------------------------------------------*/

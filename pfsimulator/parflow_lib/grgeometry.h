@@ -212,6 +212,22 @@ typedef struct {
                          ix, iy, iz, nx, ny, nz, body); \
   }
 
+#define GrGeomCollectPatchLoop(i, j, k, fdir, grgeom, patch_num,      \
+                               r, ix, iy, iz, nx, ny, nz, list, body) \
+  {                                                                   \
+    GrGeomOctree  *PV_node;                                           \
+    double PV_ref = pow(2.0, r);                                      \
+                                                                      \
+                                                                      \
+    i = GrGeomSolidOctreeIX(grgeom) * (int)PV_ref;                    \
+    j = GrGeomSolidOctreeIY(grgeom) * (int)PV_ref;                    \
+    k = GrGeomSolidOctreeIZ(grgeom) * (int)PV_ref;                    \
+    GrGeomOctreeCollectFaceLoop(i, j, k, fdir, PV_node,               \
+                            GrGeomSolidPatch(grgeom, patch_num),      \
+                            GrGeomSolidOctreeBGLevel(grgeom) + r,     \
+														ix, iy, iz, nx, ny, nz, list, body);      \
+  }
+
 /*--------------------------------------------------------------------------
  * Experimental GrGeomSolid looping macro:
  *   Macro for looping over the faces of a solid patch.

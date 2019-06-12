@@ -50,6 +50,16 @@
 #include "bc_branching.h"
 #include "timer.h"
 
+typedef struct bc_flat_list {
+	int node_type;
+	int is_single;
+	int i, j, k;
+	int izl, iyl, ixl;
+	int izu, iyu, ixu;
+	GrGeomOctree *_node;
+	struct bc_flat_list *next;
+} BCFlatList;
+
 /*---------------------------------------------------------------------
  * Define module structures
  *---------------------------------------------------------------------*/
@@ -477,6 +487,45 @@ void    RichardsJacobianEval(
   bc_struct = PFModuleInvokeType(BCPressureInvoke, bc_pressure,
                                  (problem_data, grid, gr_domain, time));
 
+  BCFlatList **dirichlet_list = (BCFlatList**)malloc(sizeof(BCFlatList*)
+                                                    * (bc_struct->num_patches + 1));
+	BCFlatList **flux_list = (BCFlatList**)malloc(sizeof(BCFlatList*)
+                                               * (bc_struct->num_patches + 1));
+	BCFlatList **overland_list = (BCFlatList**)malloc(sizeof(BCFlatList*)
+                                                   * (bc_struct->num_patches + 1));
+  BCFlatList *dirichlet_node, *flux_node, *overland_node;
+
+  for (int ii = 0; ii < bc_struct->num_patches + 1; ii++) {
+    dirichlet_list[ii] = NULL;
+    flux_list[ii] = NULL;
+    overland_list[ii] = NULL;
+  }
+
+	ForSubgridI(is, GridSubgrids(grid))
+	{
+    ForBCStructNumPatches(ipatch, bc_struct)
+    {
+      switch(BCStructBCType(bc_struct, ipatch))
+      {
+        case DirichletBC:
+          dirichlet_list[ipatch] = (BCFlatList*)malloc(sizeof(BCFlatList));
+          dirichlet_node = dirichlet_list[ipatch];
+          BCStructCollectPatches(i, j, k, fdir, ival, bc_struct, ipatch, is, dirichlet_node, {});
+          break;
+        case FluxBC:
+          flux_list[ipatch] = (BCFlatList*)malloc(sizeof(BCFlatList));
+          flux_node = flux_list[ipatch];
+          BCStructCollectPatches(i, j, k, fdir, ival, bc_struct, ipatch, is, flux_node, {});
+          break;
+        case OverlandBC:
+          overland_list[ipatch] = (BCFlatList*)malloc(sizeof(BCFlatList));
+          overland_node = overland_list[ipatch];
+          BCStructCollectPatches(i, j, k, fdir, ival, bc_struct, ipatch, is, overland_node, {});
+          break;
+      }
+    }
+	}
+
   /* Get boundary pressure values for Dirichlet boundaries.   */
   /* These are needed for upstream weighting in mobilities - need boundary */
   /* values for rel perms and densities. */
@@ -894,17 +943,126 @@ void    RichardsJacobianEval(
     permyp = SubvectorData(permy_sub);
     permzp = SubvectorData(permz_sub);
 
-    DoRichards_BC_Contrib({
-         ApplyPatch(DirichletBC, Richards_DirichletBC_Contrib);
-         ApplyPatch(FluxBC, Richards_Flux_Contrib);
-         ApplyPatchSubtypes(OverlandBC, public_xtra->type, {
-             PatchSubtype(no_nonlinear_jacobian, Richards_Overland_Contrib_Default);
-             PatchSubtype(not_set, Richards_Overland_Contrib_Default);
-             PatchSubtype(simple, Richards_Overland_Contrib_Simple);
-             PatchSubtype(overland_flow, Richards_Overland_Contrib_Spinup);
-           });
-      });
+    ForBCStructNumPatches(ipatch, bc_struct)
+    {
+      bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);
+      switch (BCStructBCType(bc_struct, ipatch))
+      {
+        case DirichletBC:
+        {
+          BCStructPatchLoop_Collected(ipatch, dirichlet_list, dirichlet_node, i, j, k,
+                                      RJE_Dirichlet_Contrib_Prologue,
+                                      RJE_Dirichlet_Contrib_Epilogue,
+                                      RJE_Dirichlet_Contrib_Left,
+                                      RJE_Dirichlet_Contrib_Right,
+                                      RJE_Dirichlet_Contrib_Up,
+                                      RJE_Dirichlet_Contrib_Down,
+                                      RJE_Dirichlet_Contrib_Front,
+                                      RJE_Dirichlet_Contrib_Back);
+          break;
+        }
+        case FluxBC:
+        {
+          BCStructPatchLoop_Collected(ipatch, flux_list, flux_node, i, j, k,
+                                      {
+                                        im = SubmatrixEltIndex(J_sub, i, j, k);
+                                      },
+                                      {
+                                        cp[im] += op[im];
+                                        op[im] = 0.0;
+                                      },
+                                      FACE(Left, { op = wp; }),
+                                      FACE(Right, { op = ep; }),
+                                      FACE(Up, { op = sop; }),
+                                      FACE(Down, { op = np; }),
+                                      FACE(Front, { op = lp; }),
+                                      FACE(Back, { op = up; })
+            );
+          break;
+        }
+        case OverlandBC:
+        {
+          BCStructPatchLoop_Collected(ipatch, overland_list, overland_node, i, j, k,
+                                      { im = SubmatrixEltIndex(J_sub, i, j, k); },
+                                      {
+                                        cp[im] += op[im];
+                                        op[im] = 0.0;
+                                      },
+                                      FACE(Left, { op = wp; }),
+                                      FACE(Right, { op = ep; }),
+                                      FACE(Up, { op = sop; }),
+                                      FACE(Down, { op = np; }),
+                                      FACE(Front, { op = lp; }),
+                                      FACE(Back,
+                                           {
+                                             op = up;
+                                             if (!ovlnd_flag) {
+                                               ip = SubvectorEltIndex(p_sub, i, j, k);
+                                               if (pp[ip] > 0.0) {
+                                                 ovlnd_flag = 1;
+                                               }
+                                             }
+                                           })
+            );
+          switch (public_xtra->type) {
+            case no_nonlinear_jacobian:
+            case not_set:
+            {
+              assert(1);
+            }
+            case simple:
+            {
+              BCStructPatchLoop_Collected(ipatch, overland_list, overland_node, i, j, k,
+                                          {},{},
+                                          FACE(Back,
+                                               {
+                                                 ip = SubvectorEltIndex(p_sub, i, j, k);
+                                                 im = SubmatrixEltIndex(J_sub, i, j, k);
+                                                 if (pp[ip] > 0.0) {
+                                                   cp[im] += (vol * z_mult_dat[ip]) / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * (dt + 1);
+                                                 }
+                                               })
+                );
+            }
+
+            case overland_flow:
+            {
+              if (overlandspinup == 1) {
+                BCStructPatchLoop_Collected(ipatch, overland_list, overland_node, i, j, k,
+                                            {}, {},
+                                            FACE(Back,
+                                                 {
+                                                   ip = SubvectorEltIndex(p_sub, i, j, k);
+                                                   im = SubmatrixEltIndex(J_sub, i, j, k);
+                                                   vol = dx * dy * dz;
+                                                   if (pp[ip] >= 0.0) {
+                                                     cp[im] += (vol / dz) * dt * (1.0 + 0.0);
+                                                   }
+                                                 })
+                  );
+
+              } else {
+                if (diffusive == 0) {
+                  PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
+                                     (grid, is, bc_struct, ipatch, problem_data, pressure,
+                                      ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
+                } else {
+                  PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff,
+                                     (grid, is, bc_struct, ipatch, problem_data, pressure,
+                                      ke_der, kw_der, kn_der, ks_der,
+                                      kens_der, kwns_der, knns_der, ksns_der, NULL, NULL, CALCDER));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
+
+  free(dirichlet_list);
+  free(flux_list);
+  free(overland_list);
 
   PFModuleInvokeType(RichardsBCInternalInvoke, bc_internal, (problem, problem_data, NULL, J, time,
                                                              pressure, CALCDER));
