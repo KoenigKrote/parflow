@@ -10,6 +10,8 @@
 /*****************************************************************************
  * Header file for defining equation macros for usage in Boundary Condition Loops
  *
+ * "By merely writing this macro, I am a horrible person who deserves terrible things."
+ *
  *****************************************************************************/
 
 // NOTE: This macro will cause breakage on the switch if too many arguments are passed in!
@@ -21,59 +23,76 @@
 #define EXPAND_INDIRECTION(n) EXPAND_CASES_ ## n
 #define EXPAND_CASES(n) EXPAND_INDIRECTION(n)
 
-/* TODO: Replace PatchFaceSwitch
-#define DirichletBC_Pressure(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v) \
-  bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is);         \
-                                                                        \
-  switch (BCStructBCType(bc_struct, ipatch))                            \
-  {                                                                     \
-    case DirichletBC:                                                   \
-    {                                                                   \
-      BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,         \
-      {                                             \
-        ip = SubvectorEltIndex(p_sub, i, j, k);                         \
-        value = bc_patch_values[ival];                                  \
-      },                                                                \
-                          {},                                           \
-                          PatchFaceSwitch(fdir2,                      \
-                        {pp[ip - 1] = value;},                          \
-                        {pp[ip + 1] = value;},                          \
-                        {pp[ip - sy_v] = value;},                       \
-                        {pp[ip + sy_v] = value;},                       \
-                        {pp[ip - sz_v] = value;},                       \
-                        {pp[ip + sz_v] = value;},                       \
-                        {});                                            \
-      });                                                               \
-      break;                                                            \
-    }                                                                   \
-  }                                                                     \
-*/
 
-#define TemperatureContrib(cp, wp, ep, sop, np, lp, up, im, sy_m, sz_m, \
-                           west_temp, east_temp, north_temp, south_temp, \
-                           upper_temp, lower_temp, symm_part,           \
-                           sym_east_temp, sym_north_temp, sym_upper_temp) \
-  cp[im] -= west_temp + south_temp + lower_temp;                        \
-  cp[im + 1] -= east_temp;                                              \
-  cp[im + sy_m] -= north_temp;                                          \
-  cp[im + sz_m] -= upper_temp;                                          \
-  if (!symm_part)                                                       \
-  {                                                                     \
-    ep[im] += east_temp;                                                \
-    np[im] += north_temp;                                               \
-    up[im] += upper_temp;                                               \
-    wp[im + 1] += west_temp;                                            \
-    sop[im + sy_m] += south_temp;                                       \
-    lp[im + sz_m] += lower_temp;                                        \
-  }                                                                     \
-  else                                                                  \
-  {                                                                     \
-    ep[im] += sym_east_temp;                                            \
-    np[im] += sym_north_temp;                                           \
-    up[im] += sym_upper_temp;                                           \
+#define Left 0
+#define Right 1
+#define Up 2
+#define Down 3
+#define Front 4
+#define Back 5
+#define FACE(a, b) XCASE(a, b)
+#define PROLOGUE(x) x
+#define EPILOGUE(x) x
+
+/* Create a case statement with a body */
+#define WITH_BODY(_case, body)                  \
+  case _case:                                   \
+  {                                             \
+    body;                                       \
+    break;                                      \
   }
 
+/* Create a fallthrough case statement */
+#define ONLY_CASE(_case) \
+  case _case:
 
+/* Variadic macros to determine what kind of case statement to build */
+#define CASE_BODY_SELECTION(arg1, arg2, arg3, ...) arg3
+#define XCASE(...) \
+  CASE_BODY_SELECTION(__VA_ARGS__, WITH_BODY, ONLY_CASE)(__VA_ARGS__)
+
+/* Because recursion and macros don't play nice */
+#define EXPAND_CASES_1(a, ...) a
+#define EXPAND_CASES_2(a, ...) a EXPAND_CASES_1(__VA_ARGS__)
+#define EXPAND_CASES_3(a, ...) a EXPAND_CASES_2(__VA_ARGS__)
+#define EXPAND_CASES_4(a, ...) a EXPAND_CASES_3(__VA_ARGS__)
+#define EXPAND_CASES_5(a, ...) a EXPAND_CASES_4(__VA_ARGS__)
+#define EXPAND_CASES_6(a, ...) a EXPAND_CASES_5(__VA_ARGS__)
+
+/* Create a variadic switch-case */
+#define XSWITCH(key, ...)                                     \
+  switch (key) {																							\
+		EXPAND_CASES(COUNT_VARARGS(__VA_ARGS__))(__VA_ARGS__)     \
+  }
+
+/* Indirection macro to expand arguments for BCStructPatchLoopXX */
+#define EXPAND_EQUATIONS(prologue, epilogue, ...)           \
+  BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, \
+                      prologue, epilogue, __VA_ARGS__);     \
+
+/* Main calling case for Patch loops */
+#define ApplyPatch(_case, equations)                          \
+  case _case:                                                 \
+  {                                                           \
+    EXPAND_EQUATIONS(equations);                              \
+    break;                                                    \
+  }
+
+/* For nested switch cases */
+/* @TODO: This is being replaced by giving each subtype and actual enum */
+#define ApplyPatchSubtypes(_case, _subcase, equations) \
+  case _case:                                    \
+  {                                              \
+    switch(_subcase)                             \
+    {                                            \
+      equations;                               \
+    }                                            \
+  }
+
+#define PatchSubtype(_case, equations) ApplyPatch(_case, equations)
+
+
+#if 0
 /**
  *  @brief Calculation used in Dirichlet Boundary Condition case
  *
@@ -155,56 +174,10 @@
   }
 
 #define L970_Dirichlet(face) L970_Dirichlet_##face
+#endif
 
 
-/*
-  Found while reading about x-macros:
-  By merely writing this macro, I am a horrible person who deserves terrible things.
-*/
-
-
-#define Left 0
-#define Right 1
-#define Up 2
-#define Down 3
-#define Front 4
-#define Back 5
-#define FACE(a, b) XCASE(a, b)
-
-#define WITH_BODY(_case, body)                  \
-  case _case:                                   \
-  {                                             \
-    body;                                       \
-    break;                                      \
-  }
-
-#define ONLY_CASE(_case) \
-  case _case:
-
-#define CASE_BODY_SELECTION(arg1, arg2, arg3, ...) arg3
-#define XCASE(...) \
-  CASE_BODY_SELECTION(__VA_ARGS__, WITH_BODY, ONLY_CASE)(__VA_ARGS__)
-
-#define EXPAND_CASES_1(a, ...) a
-#define EXPAND_CASES_2(a, ...) a EXPAND_CASES_1(__VA_ARGS__)
-#define EXPAND_CASES_3(a, ...) a EXPAND_CASES_2(__VA_ARGS__)
-#define EXPAND_CASES_4(a, ...) a EXPAND_CASES_3(__VA_ARGS__)
-#define EXPAND_CASES_5(a, ...) a EXPAND_CASES_4(__VA_ARGS__)
-#define EXPAND_CASES_6(a, ...) a EXPAND_CASES_5(__VA_ARGS__)
-
-#define XSWITCH(key, ...)                                     \
-  switch (key) {																							\
-		EXPAND_CASES(COUNT_VARARGS(__VA_ARGS__))(__VA_ARGS__)     \
-  }
-
-
-// More silly indirection to expand the actual equation bodies
-#define DoRichards_SymmCorrection(J_sub, p_sub, rpp, dp, i, j, k)       \
-  DoRichards_SymmCorrection_(Richards_SymmCorrection(p_sub, J_sub, rpp, dp, i, j, k))
-
-#define DoRichards_SymmCorrection_(equations)  DoRichards_SymmCorrection__(equations)
-
-#define DoRichards_SymmCorrection__(prologue, epilogue, ...)    \
+#define DoRichards_SymmCorrection(prologue, epilogue, ...)     \
   ForBCStructNumPatches(ipatch, bc_struct)                     \
   {                                                            \
     BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,  \
@@ -219,35 +192,6 @@
     {                                                               \
       equations;                                                    \
     }                                                               \
-  }
-
-#define EXPAND_EQUATIONS(prologue, epilogue, ...)           \
-  BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, \
-                      prologue, epilogue, __VA_ARGS__);     \
-
-#define EXPAND_EQUATIONS_(equations) EXPAND_EQUATIONS(equations)
-
-#define ApplyPatch(_case, equations)                          \
-  case _case:                                                 \
-  {                                                           \
-    EXPAND_EQUATIONS(equations);                              \
-    break;                                                    \
-  }
-
-#define ApplyPatchSubtypes(_case, _subcase, equations) \
-  case _case:                                    \
-  {                                              \
-    switch(_subcase)                             \
-    {                                            \
-      equations;                               \
-    }                                            \
-  }
-
-#define PatchSubtype(_case, equations) \
-  case _case:                          \
-  {                                    \
-    EXPAND_EQUATIONS(equations);       \
-    break;                             \
   }
 
 #define DoRichardsDirichlet_Contrib(equations)  \
