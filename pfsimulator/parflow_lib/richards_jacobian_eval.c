@@ -993,7 +993,6 @@ void    RichardsJacobianEval(
     permyp = SubvectorData(permy_sub);
     permzp = SubvectorData(permz_sub);
 
-
     DoRichards_BC_Contrib({
         ApplyPatch(DirichletBC,
                    PROLOGUE({
@@ -1171,10 +1170,10 @@ void    RichardsJacobianEval(
             // TODO: Add overland_flow spinup and kinematic branches
           })
       });
-
         /*
+
     DoRichards_BC_Contrib({
-         ApplyPatch(DirichletBC, Richards_DirichletBC_Contrib);
+				ApplyPatch(DirichletBC, Richards_DirichletBC_Contrib);
          ApplyPatch(FluxBC, Richards_Flux_Contrib);
          ApplyPatchSubtypes(OverlandBC, public_xtra->type, {
              PatchSubtype(no_nonlinear_jacobian, Richards_Overland_Contrib_Default);
