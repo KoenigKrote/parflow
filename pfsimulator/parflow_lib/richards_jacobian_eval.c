@@ -608,98 +608,125 @@ void    RichardsJacobianEval(
       y_dir_g = Mean(gravity * sin(atan(y_ssl_dat[ioo])), gravity * sin(atan(y_ssl_dat[ioo + sy_v])));
       y_dir_g_c = Mean(gravity * cos(atan(y_ssl_dat[ioo])), gravity * cos(atan(y_ssl_dat[ioo + sy_v])));
 
-      /* diff >= 0 implies flow goes left to right */
-      diff = pp[ip] - pp[ip + 1];
-      updir = (diff / dx) * x_dir_g_c - x_dir_g;
 
-      x_coeff = dt * ffx * (1.0 / dx) * z_mult_dat[ip]
-                  * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
-                  / viscosity;
+      Do_RichardsGravityX
+        (
+         PROLOGUE({
+             diff = pp[ip] - pp[ip + 1];
+             updir = (diff / dx) * x_dir_g_c - x_dir_g;
+             x_coeff = dt * ffx * (1.0 / dx) * z_mult_dat[ip]
+                       * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
+                       \ viscosity;
+           }),
+         FLOW(Positive,
+              {
+                sym_west_temp = (-x_coeff * prod) * x_dir_g_c;
+                west_temp = (-x_coeff * diff * prod_der) * x_dir_g_c + sym_west_temp;
+                west_temp += (x_coeff * dx * prod_der) * x_dir_g;
 
-      sym_west_temp = (-x_coeff
-                       * RPMean(updir, 0.0, prod, prod_rt)) * x_dir_g_c; //@RMM TFG contributions, sym
+                sym_east_temp = (-x_coeff * prod) * x_dir_g_c;
+                east_temp = sym_east_temp;
+              }),
+         FLOW(Negative,
+              {
+                sym_west_temp = (-x_coeff * prod_rt) * x_dir_g_c;
+                west_temp = sym_west_temp;
 
+                sym_east_temp = (-x_coeff * prod_rt) * x_dir_g_c;
+                east_temp = (x_coeff * diff * prod_rt_der) * x_dir_g_c + sym_east_temp;
+                east_temp += -(x_coeff * dx * prod_rt_der) * x_dir_g;
+              })
+         );
 
-      west_temp = (-x_coeff * diff
-                   * RPMean(updir, 0.0, prod_der, 0.0)) * x_dir_g_c
-        + sym_west_temp;
+      Do_RichardsGravityY
+        (
+         PROLOGUE({
+             diff = pp[ip] - pp[ip + sy_v];
+             updir = (diff / dy) * y_dir_g_c - y_dir_g;
+             y_coeff = dt * ffy * (1.0 / dy) * z_mult_dat[ip]
+                       * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
+                       / viscosity;
+           }),
+         FLOW(Positive,
+              {
+                sym_south_temp = -y_coeff * prod * y_dir_g_c;
+                south_temp = -_coeff * diff * prod_der * y_dir_g_c + sym_south_temp;
+                south_temp += (y_coeff * dy * prod_der) * y_dir_g;
 
-      west_temp += (x_coeff * dx * RPMean(updir, 0.0, prod_der, 0.0)) * x_dir_g; //@RMM TFG contributions, non sym
+                sym_north_temp = y_coeff * (-prod) * y_dir_g_c;
+                north_temp = sym_north_temp;
+              }),
+         FLOW(Negative,
+              {
+                sym_south_temp = -y_coeff * prod_no * y_dir_g_c;
+                south_temp = sym_south_temp;
 
-      sym_east_temp = (-x_coeff
-                       * RPMean(updir, 0.0, prod, prod_rt)) * x_dir_g_c; //@RMM added sym TFG contributions
+                sym_north_temp = y_coeff * (-prod_no) * y_dir_g_c;
+                north_temp = y_coeff * diff * prod_no_der * y_dir_g_c + sym_north_temp;
+                north_temp += -(y_coeff * dy * prod_no_der) * y_dir_g;
+              })
+         );
 
-      east_temp = (x_coeff * diff
-                   * RPMean(updir, 0.0, 0.0, prod_rt_der)) * x_dir_g_c
-                  + sym_east_temp;
+      Do_RichardsGravityZ
+        (
+         PROLOGUE({
+             double z_mult_mean = Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]);
 
-      east_temp += -(x_coeff * dx * RPMean(updir, 0.0, 0.0, prod_rt_der)) * x_dir_g; //@RMM  TFG contributions non sym
-
-      /* diff >= 0 implies flow goes south to north */
-      diff = pp[ip] - pp[ip + sy_v];
-      updir = (diff / dy) * y_dir_g_c - y_dir_g;
-
-      y_coeff = dt * ffy * (1.0 / dy) * z_mult_dat[ip]
-                  * PMean(pp[ip], pp[ip + sy_v], permyp[ip], permyp[ip + sy_v])
-                  / viscosity;
-
-      sym_south_temp = -y_coeff
-                  * RPMean(updir, 0.0, prod, prod_no) * y_dir_g_c; //@RMM TFG contributions, SYMM
-
-      south_temp = -y_coeff * diff
-                  * RPMean(updir, 0.0, prod_der, 0.0) * y_dir_g_c
-                  + sym_south_temp;
-
-      south_temp += (y_coeff * dy * RPMean(updir, 0.0, prod_der, 0.0)) * y_dir_g; //@RMM TFG contributions, non sym
-
-
-      sym_north_temp = y_coeff
-                  * -RPMean(updir, 0.0, prod, prod_no) * y_dir_g_c; //@RMM  TFG contributions non SYMM
-
-      north_temp = y_coeff * diff
-                  * RPMean(updir, 0.0, 0.0,
-                           prod_no_der) * y_dir_g_c
-                  + sym_north_temp;
-
-      north_temp += -(y_coeff * dy * RPMean(updir, 0.0, 0.0, prod_no_der)) * y_dir_g; //@RMM  TFG contributions non sym
-
-      sep = (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]));
-      /* diff >= 0 implies flow goes lower to upper */
-
-
-      lower_cond = pp[ip] / sep - (z_mult_dat[ip] / (z_mult_dat[ip] + z_mult_dat[ip + sz_v])) * dp[ip] * gravity;
-
-      upper_cond = pp[ip + sz_v] / sep + (z_mult_dat[ip + sz_v] / (z_mult_dat[ip] + z_mult_dat[ip + sz_v])) * dp[ip + sz_v] * gravity;
-
-
-      diff = lower_cond - upper_cond;
-
-      z_coeff = dt * ffz
-                  * PMeanDZ(permzp[ip], permzp[ip + sz_v], z_mult_dat[ip], z_mult_dat[ip + sz_v])
-                  / viscosity;
-
-      sym_lower_temp = -z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                  * RPMean(lower_cond, upper_cond, prod,
-                           prod_up);
-
-      lower_temp = -z_coeff
-                  * (diff * RPMean(lower_cond, upper_cond, prod_der, 0.0)
-                     + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
-                        * RPMean(lower_cond, upper_cond, prod,
-                                 prod_up)))
+             sep = (dz * z_mult_mean);
+             lower_cond = pp[ip] / sep
+               - (z_mult_dat[ip] / (z_mult_dat[ip] + z_mult_dat[ip + sz_v]))
+               * dp[ip] * gravity;
+             upper_cond = pp[ip + sz_v] / sep
+               + (z_mult_dat[ip + sz_v] / (z_mult_dat[ip] + z_mult_dat[ip + sz_v]))
+               * dp[ip + sz_v] * gravity;
+             diff = lower_cond - upper_cond;
+             updir = diff; // updir is used for branching
+             z_coeff = dt * ffz
+               * PMeanDZ(permzp[ip], permzp[ip + sz_v], z_mult_dat[ip], z_mult_dat[ip + sz_v])
+               / viscosity;
+           }),
+         FLOW(Positive,
+              {
+                sym_lower_temp = -z_coeff * (1.0 / (dz * z_mult_mean)) * prod;
+                lower_temp = -z_coeff
+                  * (diff * prod_der
+                     + (-gravity * 0.5 * dz * z_mult_mean * ddp[ip] * prod))
                   + sym_lower_temp;
 
-      sym_upper_temp = z_coeff * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
-                  * -RPMean(lower_cond, upper_cond, prod,
-                            prod_up);
+                sym_upper_temp = z_coeff
+                  * (1.0 / (dz * z_mult_mean))
+                  * (-prod);
 
-      upper_temp = z_coeff
-                  * (diff * RPMean(lower_cond, upper_cond, 0.0,
-                                   prod_up_der)
-                     + (-gravity * 0.5 * dz * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip + sz_v]
-                        * RPMean(lower_cond, upper_cond, prod,
-                                 prod_up)))
+                upper_temp = z_coeff
+                  * (-gravity * 0.5 * dz
+                     * z_mult_mean * ddp[ip + sz_v]
+                     * prod)
                   + sym_upper_temp;
+              }),
+         FLOW(Negative,
+              {
+                sym_lower_temp = -z_coeff
+                  * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                  * prod_up;
+
+                lower_temp = -z_coeff
+                  * (-gravity * 0.5 * dz
+                     * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip]
+                     * prod_up)
+                  + sym_lower_temp;
+
+                sym_upper_temp = z_coeff
+                  * (1.0 / (dz * Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])))
+                  * (-prod_up);
+
+                upper_temp = z_coeff
+                  * (diff * prod_up_der
+                     + (-gravity * 0.5 * dz
+                        * (Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v])) * ddp[ip + sz_v]
+                        * prod_up))
+                  + sym_upper_temp;
+              })
+         );
 
 
       cp[im] -= west_temp + south_temp + lower_temp;

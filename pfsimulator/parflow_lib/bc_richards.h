@@ -61,6 +61,30 @@
     }                                                                   \
   }
 
+
+
+#define Do_RichardsGravityX(prologue, flow_pos, flow_neg) \
+  RichardsGravity(prologue, flow_pos, flow_neg);
+#define Do_RichardsGravityY(prologue, flow_pos, flow_neg) \
+  RichardsGravity(prologue, flow_pos, flow_neg);
+#define Do_RichardsGravityZ(prologue, flow_pos, flow_neg) \
+  RichardsGravity(prologue, flow_pos, flow_neg);
+
+#define FLOW(dir, body) body
+
+// a - b >= 0 ? c : d
+#define RichardsGravity(prologue, flow_pos, flow_neg)       \
+  {                                                         \
+    prologue;                                               \
+    if (updir >= 0)                                         \
+    {                                                       \
+      flow_pos;                                             \
+    } else {                                                \
+      flow_neg;                                             \
+    }                                                       \
+  }
+
+
 // Add symmetric contributions for Richards Jacobian
 #define Do_RichardsSymmCorrection(prologue, epilogue, ...) \
   ForBCStructNumPatches(ipatch, bc_struct)                 \
