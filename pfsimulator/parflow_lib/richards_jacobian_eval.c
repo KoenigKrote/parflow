@@ -487,6 +487,17 @@ void    RichardsJacobianEval(
   bc_struct = PFModuleInvokeType(BCPressureInvoke, bc_pressure,
                                  (problem_data, grid, gr_domain, time));
 
+  static int __setup = 0;
+  FILE *fpa;
+  fpa = fopen("timing_setup.csv", "a");
+  if (!__setup) {
+    fprintf(fpa, "Total\n");
+    __setup = 1;
+  }
+  struct timeval tp2;
+  gettimeofday(&tp2, NULL);
+  double start_time2 = GETTIME(tp2);
+
   BCFlatList **dirichlet_list = (BCFlatList**)malloc(sizeof(BCFlatList*)
                                                     * (bc_struct->num_patches + 1));
 	BCFlatList **flux_list = (BCFlatList**)malloc(sizeof(BCFlatList*)
@@ -526,6 +537,10 @@ void    RichardsJacobianEval(
     }
 	}
 
+  gettimeofday(&tp2, NULL);
+  double end_time2 = GETTIME(tp2);
+  fprintf(fpa, "%lf\n", end_time2 - start_time2);
+  fclose(fpa);
   /* Get boundary pressure values for Dirichlet boundaries.   */
   /* These are needed for upstream weighting in mobilities - need boundary */
   /* values for rel perms and densities. */
@@ -865,6 +880,15 @@ void    RichardsJacobianEval(
     }
   }                  /* End if symm_part */
 
+
+  static int __init = 0;
+  FILE *fp;
+  fp = fopen("timing.csv", "a");
+  if (!__init) {
+    fprintf(stderr, "Iterations,Average,Total\n");
+    __init = 1;
+  }
+  TIMER(1, fp, {
   ForSubgridI(is, GridSubgrids(grid))
   {
     subgrid = GridSubgrid(grid, is);
@@ -1060,9 +1084,36 @@ void    RichardsJacobianEval(
     }
   }
 
+    });
+  fclose(fp);
+
+  ForBCStructNumPatches(ipatch, bc_struct)
+  {
+    dirichlet_node = dirichlet_list[ipatch];
+    flux_node = flux_list[ipatch];
+    overland_node = overland_list[ipatch];
+    BCFlatList *node;
+    while (dirichlet_node != NULL) {
+      node = dirichlet_node->next;
+      free(dirichlet_node);
+      dirichlet_node = node;
+    }
+    while (flux_node != NULL) {
+      node = flux_node->next;
+      free(flux_node);
+      flux_node = node;
+    }
+    while (overland_node != NULL) {
+      node = overland_node->next;
+      free(overland_node);
+      overland_node = node;
+    }
+  }
+
   free(dirichlet_list);
   free(flux_list);
   free(overland_list);
+
 
   PFModuleInvokeType(RichardsBCInternalInvoke, bc_internal, (problem, problem_data, NULL, J, time,
                                                              pressure, CALCDER));
