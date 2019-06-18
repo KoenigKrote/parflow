@@ -33,6 +33,8 @@
 #define FACE(a, b) XCASE(a, b)
 #define PROLOGUE(x) x
 #define EPILOGUE(x) x
+#define NO_PROLOGUE PROLOGUE({})
+#define NO_EPILOGUE EPILOGUE({})
 
 /* Create a case statement with a body */
 #define WITH_BODY(_case, body)                  \

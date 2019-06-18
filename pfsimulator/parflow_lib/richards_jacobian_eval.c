@@ -843,7 +843,7 @@ void    RichardsJacobianEval(
              im = SubmatrixEltIndex(J_sub, i, j, k);
              prod = rpp[ip] * dp[ip];
            }),
-         EPILOGUE({}),
+         NO_EPILOGUE,
          FACE(Left,
               {
                 diff = pp[ip - 1] - pp[ip];
@@ -1146,6 +1146,7 @@ void    RichardsJacobianEval(
                        FACE(Back,
                             {
                               op = up;
+                              ip = SubvectorEltIndex(p_sub, i, j, k);
                               if (pp[ip] > 0.0) {
                                 ovlnd_flag = 1;
                               }
@@ -1197,23 +1198,28 @@ void    RichardsJacobianEval(
                        );
             case overland_flow:
             {
+              /* TODO: Need to put this behind a macro
+               * NOTE: Unnecessary? Reed/Laura are going to add more overland types
+               * so we can just switch on those instead
+               */
               if (overlandspinup == 1)
               {
                 //BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
                 BCStructPatchLoop_Collected(ipatch, bc_list, i, j, k,
-                {
+                PROLOGUE({
                   im = SubmatrixEltIndex(J_sub, i, j, k);
-                },
-                {
+                }),
+                EPILOGUE({
                   cp[im] += op[im];
                   op[im] = 0.0;
-                },
+                }),
                 FACE(Left, {op = wp;}),
                 FACE(Right, {op = ep;}),
                 FACE(Up, {op = sop;}),
                 FACE(Down, {op = np;}),
                 FACE(Back,
                 {
+                  op = up;
                   ip = SubvectorEltIndex(p_sub, i, j, k);
                   vol = dx * dy * dz;
                   if (pp[ip] >= 0.0)
@@ -1224,6 +1230,31 @@ void    RichardsJacobianEval(
               }
               else
               {
+                /* Default loop for Overland.  Can we macro-ize this somewhere? */
+                BCStructPatchLoop_Collected(ipatch, bc_list, i, j, k,
+                PROLOGUE({
+                  im = SubmatrixEltIndex(J_sub, i, j, k);
+                }),
+                EPILOGUE({
+                  cp[im] += op[im];
+                  op[im] = 0.0;
+                }),
+                FACE(Left, {op = wp;}),
+                FACE(Right, {op = ep;}),
+                FACE(Up, {op = sop;}),
+                FACE(Down, {op = np;}),
+                FACE(Back,
+                {
+                  op = up;
+                  if (!ovlnd_flag)
+                  {
+                    ip = SubvectorEltIndex(p_sub, i, j, k);
+                    if (pp[ip] > 0.0)
+                    {
+                      ovlnd_flag = 1;
+                    }
+                  }
+                }));
                 if (diffusive == 0)
                 {
                   PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
@@ -1376,119 +1407,112 @@ void    RichardsJacobianEval(
 
       top_dat = SubvectorData(top_sub);
 
-      for (ipatch = 0; ipatch < BCStructNumPatches(bc_struct); ipatch++)
-      {
-        switch (BCStructBCType(bc_struct, ipatch))
+      Do_RichardsBuildJC({
+        ApplyPatch(OverlandBC, bc_list,
+        NO_PROLOGUE, // Only do work on Back face
+        NO_EPILOGUE,
+        FACE(Back,
         {
-          case OverlandBC:
+          /* Loop over boundary patches to build JC matrix.
+           */
+          io = SubmatrixEltIndex(J_sub, i, j, iz);
+          io1 = SubvectorEltIndex(sx_sub, i, j, 0);
+          itop = SubvectorEltIndex(top_sub, i, j, 0);
+
+          /* Update JC */
+          ip = SubvectorEltIndex(p_sub, i, j, k);
+          im = SubmatrixEltIndex(J_sub, i, j, k);
+
+          /* First put contributions from subsurface diagonal onto diagonal of JC */
+          cp_c[io] = cp[im];
+          cp[im] = 0.0;         // update JB
+          /* Now check off-diagonal nodes to see if any surface-surface connections exist */
+          /* West */
+          k1 = (int)top_dat[itop - 1];
+
+          if (k1 >= 0)
           {
-            BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, ipatch, is,
+            if (k1 == k)         /*west node is also surface node */
             {
-              if (fdir[2] == 1)
-              {
-                /* Loop over boundary patches to build JC matrix.
-                 */
-                io = SubmatrixEltIndex(J_sub, i, j, iz);
-                io1 = SubvectorEltIndex(sx_sub, i, j, 0);
-                itop = SubvectorEltIndex(top_sub, i, j, 0);
-
-                /* Update JC */
-                ip = SubvectorEltIndex(p_sub, i, j, k);
-                im = SubmatrixEltIndex(J_sub, i, j, k);
-
-                /* First put contributions from subsurface diagonal onto diagonal of JC */
-                cp_c[io] = cp[im];
-                cp[im] = 0.0;         // update JB
-                /* Now check off-diagonal nodes to see if any surface-surface connections exist */
-                /* West */
-                k1 = (int)top_dat[itop - 1];
-
-                if (k1 >= 0)
-                {
-                  if (k1 == k)         /*west node is also surface node */
-                  {
-                    wp_c[io] += wp[im];
-                    wp[im] = 0.0;           // update JB
-                  }
-                }
-                /* East */
-                k1 = (int)top_dat[itop + 1];
-                if (k1 >= 0)
-                {
-                  if (k1 == k)         /*east node is also surface node */
-                  {
-                    ep_c[io] += ep[im];
-                    ep[im] = 0.0;           //update JB
-                  }
-                }
-                /* South */
-                k1 = (int)top_dat[itop - sy_v];
-                if (k1 >= 0)
-                {
-                  if (k1 == k)         /*south node is also surface node */
-                  {
-                    sop_c[io] += sop[im];
-                    sop[im] = 0.0;           //update JB
-                  }
-                }
-                /* North */
-                k1 = (int)top_dat[itop + sy_v];
-                if (k1 >= 0)
-                {
-                  if (k1 == k)         /*north node is also surface node */
-                  {
-                    np_c[io] += np[im];
-                    np[im] = 0.0;           // Update JB
-                  }
-                }
-
-                /* Now add overland contributions to JC */
-                if ((pp[ip]) > 0.0)
-                {
-                  /*diagonal term */
-                  cp_c[io] += (vol / dz) + (vol / ffy) * dt * (ke_der[io1] - kw_der[io1])
-                              + (vol / ffx) * dt * (kn_der[io1] - ks_der[io1]);
-                }
-                else
-                {
-                  // Laura's version
-                  cp_c[io] += 0.0 + dt * (vol / dz) * (public_xtra->SpinupDampP1 * exp(pfmin(pp[ip], 0.0) * public_xtra->SpinupDampP1) * public_xtra->SpinupDampP2); //NBE
-                }
-
-                if (diffusive == 0)
-                {
-                  /*west term */
-                  wp_c[io] -= (vol / ffy) * dt * (ke_der[io1 - 1]);
-
-                  /*East term */
-                  ep_c[io] += (vol / ffy) * dt * (kw_der[io1 + 1]);
-
-                  /*south term */
-                  sop_c[io] -= (vol / ffx) * dt * (kn_der[io1 - sy_v]);
-
-                  /*north term */
-                  np_c[io] += (vol / ffx) * dt * (ks_der[io1 + sy_v]);
-                }
-                else
-                {
-                  /*west term */
-                  wp_c[io] -= (vol / ffy) * dt * (kwns_der[io1]);
-
-                  /*East term */
-                  ep_c[io] += (vol / ffy) * dt * (kens_der[io1]);
-
-                  /*south term */
-                  sop_c[io] -= (vol / ffx) * dt * (ksns_der[io1]);
-
-                  /*north term */
-                  np_c[io] += (vol / ffx) * dt * (knns_der[io1]);
-                }
-              }
-            });
-            break;
+              wp_c[io] += wp[im];
+              wp[im] = 0.0;           // update JB
+            }
           }
-        }         /* End switch BCtype */
-      }           /* End ipatch loop */
+          /* East */
+          k1 = (int)top_dat[itop + 1];
+          if (k1 >= 0)
+          {
+            if (k1 == k)         /*east node is also surface node */
+            {
+              ep_c[io] += ep[im];
+              ep[im] = 0.0;           //update JB
+            }
+          }
+          /* South */
+          k1 = (int)top_dat[itop - sy_v];
+          if (k1 >= 0)
+          {
+            if (k1 == k)         /*south node is also surface node */
+            {
+              sop_c[io] += sop[im];
+              sop[im] = 0.0;           //update JB
+            }
+          }
+          /* North */
+          k1 = (int)top_dat[itop + sy_v];
+          if (k1 >= 0)
+          {
+            if (k1 == k)         /*north node is also surface node */
+            {
+              np_c[io] += np[im];
+              np[im] = 0.0;           // Update JB
+            }
+          }
+
+          /* Now add overland contributions to JC */
+          if ((pp[ip]) > 0.0)
+          {
+            /*diagonal term */
+            cp_c[io] += (vol / dz) + (vol / ffy) * dt * (ke_der[io1] - kw_der[io1])
+              + (vol / ffx) * dt * (kn_der[io1] - ks_der[io1]);
+          }
+          else
+          {
+            // Laura's version
+            cp_c[io] += 0.0 + dt * (vol / dz) * (public_xtra->SpinupDampP1 * exp(pfmin(pp[ip], 0.0) * public_xtra->SpinupDampP1) * public_xtra->SpinupDampP2); //NBE
+          }
+
+          if (diffusive == 0)
+          {
+            /*west term */
+            wp_c[io] -= (vol / ffy) * dt * (ke_der[io1 - 1]);
+
+            /*East term */
+            ep_c[io] += (vol / ffy) * dt * (kw_der[io1 + 1]);
+
+            /*south term */
+            sop_c[io] -= (vol / ffx) * dt * (kn_der[io1 - sy_v]);
+
+            /*north term */
+            np_c[io] += (vol / ffx) * dt * (ks_der[io1 + sy_v]);
+          }
+          else
+          {
+            /*west term */
+            wp_c[io] -= (vol / ffy) * dt * (kwns_der[io1]);
+
+            /*East term */
+            ep_c[io] += (vol / ffy) * dt * (kens_der[io1]);
+
+            /*south term */
+            sop_c[io] -= (vol / ffx) * dt * (ksns_der[io1]);
+
+            /*north term */
+            np_c[io] += (vol / ffx) * dt * (knns_der[io1]);
+          }
+        }) // End FACE(Back,{})
+                   ); // End ApplyPatch(OverlandBC)
+      }); // End Do_RichardsBuildJC
     }             /* End subgrid loop */
   }
 

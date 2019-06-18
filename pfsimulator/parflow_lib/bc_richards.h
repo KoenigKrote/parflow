@@ -84,6 +84,14 @@
     }                                                             \
   }
 
+#define Do_RichardsBuildJC(equations)           \
+  ForBCStructNumPatches(ipatch, bc_struct)      \
+  {                                             \
+    switch (BCStructBCType(bc_struct, ipatch))  \
+    {                                           \
+      equations;                                \
+    }                                           \
+  }
 
 #define FLOW(dir, body) body
 
