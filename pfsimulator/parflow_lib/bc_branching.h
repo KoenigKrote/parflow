@@ -52,6 +52,7 @@
   CASE_BODY_SELECTION(__VA_ARGS__, WITH_BODY, ONLY_CASE)(__VA_ARGS__)
 
 /* Because recursion and macros don't play nice */
+#define EXPAND_CASES_0(...) {};
 #define EXPAND_CASES_1(a, ...) a
 #define EXPAND_CASES_2(a, ...) a EXPAND_CASES_1(__VA_ARGS__)
 #define EXPAND_CASES_3(a, ...) a EXPAND_CASES_2(__VA_ARGS__)

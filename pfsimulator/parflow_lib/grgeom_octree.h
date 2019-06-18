@@ -922,47 +922,47 @@ typedef struct grgeom_octree {
  * @param[in] value_test boolean if tests evaluated before body execution
  * @param[in] body code to execute
  */
-#define GrGeomOctreeInsideNodeLoop(i, j, k, node, octree, level,       \
-                                   ix, iy, iz, nx, ny, nz, value_test,                                  \
-                                   body)                                                                \
-  {                                                                    \
-    int PV_i, PV_j, PV_k, PV_l; \
-    int PV_ixl, PV_iyl, PV_izl, PV_ixu, PV_iyu, PV_izu; \
-                                                        \
-                                                        \
-    PV_i = i;                                           \
-    PV_j = j;                                           \
-    PV_k = k;                                           \
+#define GrGeomOctreeInsideNodeLoop(i, j, k, node, octree, level,        \
+                                   ix, iy, iz, nx, ny, nz, value_test,  \
+                                   body)                                \
+  {                                                                     \
+    int PV_i, PV_j, PV_k, PV_l;                                         \
+    int PV_ixl, PV_iyl, PV_izl, PV_ixu, PV_iyu, PV_izu;                 \
+                                                                        \
+                                                                        \
+    PV_i = i;                                                           \
+    PV_j = j;                                                           \
+    PV_k = k;                                                           \
                                                                         \
     GrGeomOctreeInsideLoop(PV_i, PV_j, PV_k, PV_l, node, octree, level, value_test, \
-    {                                                                   \
-      if ((PV_i >= ix) && (PV_i < (ix + nx)) &&                           \
-          (PV_j >= iy) && (PV_j < (iy + ny)) &&                             \
-          (PV_k >= iz) && (PV_k < (iz + nz)))                               \
-      {                                                                   \
-        i = PV_i;                                                         \
-        j = PV_j;                                                         \
-        k = PV_k;                                                         \
-        body;                                                             \
-      }                                                                   \
+    {                                            \
+      if ((PV_i >= ix) && (PV_i < (ix + nx)) &&                         \
+          (PV_j >= iy) && (PV_j < (iy + ny)) &&                         \
+          (PV_k >= iz) && (PV_k < (iz + nz)))                           \
+      {                                                                 \
+        i = PV_i;                                                       \
+        j = PV_j;                                                       \
+        k = PV_k;                                                       \
+        body;                                                           \
+      }                                                                 \
     },                                                                  \
-    { \
-      /* find octree and region intersection */ \
-      PV_ixl = pfmax(ix, PV_i);                 \
-      PV_iyl = pfmax(iy, PV_j);                 \
-      PV_izl = pfmax(iz, PV_k);                        \
-      PV_ixu = pfmin((ix + nx), (PV_i + (int)PV_inc)); \
-      PV_iyu = pfmin((iy + ny), (PV_j + (int)PV_inc)); \
-      PV_izu = pfmin((iz + nz), (PV_k + (int)PV_inc)); \
-                                                       \
-      /* loop over indexes and execute the body */     \
-      for (k = PV_izl; k < PV_izu; k++)                \
-        for (j = PV_iyl; j < PV_iyu; j++)              \
-          for (i = PV_ixl; i < PV_ixu; i++)            \
-          {                                            \
-            body;                                      \
-          }                                            \
-    })                                                 \
+    {                                            \
+      /* find octree and region intersection */                         \
+      PV_ixl = pfmax(ix, PV_i);                                         \
+      PV_iyl = pfmax(iy, PV_j);                                         \
+      PV_izl = pfmax(iz, PV_k);                                         \
+      PV_ixu = pfmin((ix + nx), (PV_i + (int)PV_inc));                  \
+      PV_iyu = pfmin((iy + ny), (PV_j + (int)PV_inc));                  \
+      PV_izu = pfmin((iz + nz), (PV_k + (int)PV_inc));                  \
+                                                                        \
+      /* loop over indexes and execute the body */                      \
+      for (k = PV_izl; k < PV_izu; k++)                                 \
+        for (j = PV_iyl; j < PV_iyu; j++)                               \
+          for (i = PV_ixl; i < PV_ixu; i++)                             \
+          {                                                             \
+            body;                                                       \
+          }                                                             \
+    })                                                                  \
   }
 
 /**
@@ -1156,6 +1156,102 @@ typedef struct grgeom_octree {
  *   And instead the programmer should insert a switch-case to directly
  *   Perform conditionals, rather than checking fdir values again
  *--------------------------------------------------------------------------*/
+
+#define CollectGrGeomOctreeFaceLoop2(i, j, k, node, octree, level_of_interest, \
+                                    ix, iy, iz, nx, ny, nz, list)       \
+  {                                                                     \
+    int PV_i, PV_j, PV_k, PV_l;                                         \
+  }
+
+#define CollectGrGeomOctreeFaceLoop(i, j, k, node, octree, level_of_interest, \
+                                    ix, iy, iz, nx, ny, nz, list)       \
+{                                                                     \
+    int PV_i, PV_j, PV_k, PV_l;                                         \
+    int PV_ixl, PV_iyl, PV_izl, PV_ixu, PV_iyu, PV_izu;                 \
+                                                                        \
+                                                                        \
+    PV_i = i;                                                           \
+    PV_j = j;                                                           \
+    PV_k = k;                                                           \
+                                                                        \
+    BCFlatList *temp = list;                                            \
+    GrGeomOctreeInsideLoop(PV_i, PV_j, PV_k, PV_l, node, octree, level_of_interest \
+                           , TRUE,                                      \
+    {                                                                   \
+      if ((PV_i >= ix) && (PV_i < (ix + nx)) &&                         \
+      (PV_j >= iy) && (PV_j < (iy + ny)) &&                             \
+          (PV_k >= iz) && (PV_k < (iz + nz)))                           \
+      {                                                                 \
+        int PV_f;                                                       \
+        for (PV_f = 0; PV_f < GrGeomOctreeNumFaces; PV_f++)             \
+        {                                                               \
+          if (GrGeomOctreeHasFace(node, PV_f))                          \
+          {                                                             \
+            i = PV_i;                                                   \
+            j = PV_j;                                                   \
+            k = PV_k;                                                   \
+            BCFlatList *octree_node;                                    \
+            NewBCFlatList(octree_node);                                 \
+            temp->next = octree_node;                                   \
+            octree_node->next = NULL;                                   \
+            octree_node->is_single = 1;                                 \
+            /* TODO: Need to rename these struct vars */                \
+            octree_node->i = i;                                         \
+            octree_node->j = j;                                         \
+            octree_node->k = k;                                         \
+            octree_node->bc_node = node;                                \
+            temp = octree_node;                                         \
+            PV_f = GrGeomOctreeNumFaces;                                \
+            ival++;                                                     \
+          }                                                             \
+        }                                                               \
+      }                                                                 \
+    },                                                                  \
+    {                                                                   \
+      /* find octree and region intersection */                         \
+      int PV_f;                                                         \
+      PV_ixl = pfmax(ix, PV_i);                                         \
+      PV_iyl = pfmax(iy, PV_j);                                         \
+      PV_izl = pfmax(iz, PV_k);                                         \
+      PV_ixu = pfmin((ix + nx), (PV_i + (int)PV_inc));                  \
+      PV_iyu = pfmin((iy + ny), (PV_j + (int)PV_inc));                  \
+      PV_izu = pfmin((iz + nz), (PV_k + (int)PV_inc));                  \
+                                                                        \
+      for (k = PV_izl; k < PV_izu; k++)                                 \
+      {                                                                 \
+        for (j = PV_iyl; j < PV_iyu; j++)                               \
+        {                                                               \
+          for (i = PV_ixl; i < PV_ixu; i++)                             \
+          {                                                             \
+            for (PV_f = 0; PV_f < GrGeomOctreeNumFaces; PV_f++)         \
+            {                                                           \
+              if (GrGeomOctreeHasFace(node, PV_f))                      \
+              {                                                         \
+                BCFlatList *octree_node;                                \
+                NewBCFlatList(octree_node);                             \
+                temp->next = octree_node;                               \
+                octree_node->next = NULL;                               \
+                octree_node->is_single = 0;                             \
+                octree_node->izl = PV_izl;                              \
+                octree_node->iyl = PV_iyl;                              \
+                octree_node->ixl = PV_ixl;                              \
+                octree_node->ixu = PV_ixu;                              \
+                octree_node->iyu = PV_iyu;                              \
+                octree_node->izu = PV_izu;                              \
+                octree_node->bc_node = node;                            \
+                temp = octree_node;                                     \
+                k = PV_izu;                                             \
+                j = PV_iyu;                                             \
+                i = PV_ixu;                                             \
+                ival++;                                                 \
+              }                                                         \
+            }                                                           \
+          }                                                             \
+        }                                                               \
+      }                                                                 \
+    })                                                                  \
+  }
+
 
 #define GrGeomOctreeFaceLoopXX(i, j, k, node, octree, level_of_interest, \
                                ix, iy, iz, nx, ny, nz,                  \

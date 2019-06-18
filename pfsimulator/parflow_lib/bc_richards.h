@@ -11,20 +11,24 @@
  * @param[in] epilogue To be done after every face equation
  * @param[in] ... Variadic set of possible face equations
  **/
-#define EXPAND_PATCH_EQUATIONS(prologue, epilogue, ...)                 \
+#define EXPAND_PATCH_EQUATIONS(_list, prologue, epilogue, ...)           \
   BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, prologue, epilogue, __VA_ARGS__);
 
+#define EXPAND_PATCH_EQUATIONS2(_list, prologue, epilogue, ...) \
+  BCStructPatchLoop_Collected(ipatch, _list, i, j, k,           \
+                              prologue, epilogue, __VA_ARGS__);
+
 // Generates case statement for patch type
-#define ApplyPatch(_case, patch_equations)      \
-  case _case:                                   \
-  {                                             \
-    EXPAND_PATCH_EQUATIONS(patch_equations);    \
-    break;                                      \
-  }                                             \
+#define ApplyPatch(_case, ...)                                      \
+  case _case:                                                       \
+  {                                                                 \
+    EXPAND_PATCH_EQUATIONS2(__VA_ARGS__);                            \
+    break;                                                          \
+  }                                                                 \
 
 // For nested Overland BC types
 // @TODO: This is being replaced by giving each subtype an actual enum
-#define AppylPatchSubtypes(_case, _subcase, equations)  \
+#define ApplyPatchSubtypes(_case, _subcase, equations)  \
   case _case:                                           \
   {                                                     \
     switch ((_subcase))                                 \
@@ -37,7 +41,7 @@
 #define PatchSubtype(_case, equations) ApplyPatch(_case, equations)
 
 // Add DirichletBC pressures
-#define Do_DirichletBCPressureContrib(bc_struct, patch_idx, subgrid_idx, \
+#define Do_DirichletBCPressureContrib(patch_idx, bc_struct, list, subgrid_idx, \
                                       pressure_subvector, pressure_data, \
                                       y_offset, z_offset)               \
   {                                                                     \
@@ -48,19 +52,18 @@
       {                                                                 \
         case DirichletBC:                                               \
         {                                                               \
-          BCStructPatchLoop(i, j, k, fdir, ival, bc_struct, patch_idx, subgrid_idx, \
+          BCStructPatchLoop_Collected(patch_idx, list, i, j, k, \
           {                                                             \
-            ip = SubvectorEltIndex(pressure_sub, i, j, k);              \
-            value = bc_struct_values[ival];                             \
+            ip = SubvectorEltIndex(pressure_subvector, i, j, k);        \
+            value = bc_patch_values[ival];                              \
             pressure_data[ip + fdir[0] * 1                              \
             + fdir[1] * y_offset                                        \
             + fdir[2] * z_offset] = value;                              \
-          });                                                           \
+          },{});                                                        \
         }                                                               \
       }                                                                 \
     }                                                                   \
   }
-
 
 
 #define Do_RichardsGravityX(prologue, flow_pos, flow_neg) \
@@ -69,6 +72,18 @@
   RichardsGravity(prologue, flow_pos, flow_neg);
 #define Do_RichardsGravityZ(prologue, flow_pos, flow_neg) \
   RichardsGravity(prologue, flow_pos, flow_neg);
+
+// Add all boundary condition contributions in Richards Jacobian
+#define Do_RichardsBCContrib(equations)                           \
+  ForBCStructNumPatches(ipatch, bc_struct)                        \
+  {                                                               \
+    bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is); \
+    switch (BCStructBCType(bc_struct, ipatch))                    \
+    {                                                             \
+      equations;                                                  \
+    }                                                             \
+  }
+
 
 #define FLOW(dir, body) body
 
@@ -92,16 +107,6 @@
     BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, prologue, epilogue, __VA_ARGS__); \
   }
 
-// Add all boundary condition contributions in Richards Jacobian
-#define Do_RichardsBCContrib(equations)         \
-  ForBCStructNumPatches(ipatch, bc_struct)      \
-  {                                             \
-    bc_patch_values = BCStructPatchValues(bc_struct, ipatch, is); \
-    switch (BCStructBCType(bc_struct, ipatch))                    \
-    {                                                             \
-      equations;                                                  \
-    }                                                             \
-  }
 
 //#define Do_DerivativeAndGravityContrib()
 

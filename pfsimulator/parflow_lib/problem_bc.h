@@ -82,6 +82,70 @@ typedef struct {
 /*--------------------------------------------------------------------------
  * Experimental Looping macro:
  *--------------------------------------------------------------------------*/
+
+
+#define CollectBCStructPatchLoop(i, j, k, ival, bc_struct, ipatch, is, list) \
+  {                                                                     \
+    GrGeomSolid  *PV_gr_domain = BCStructGrDomain(bc_struct);           \
+    int PV_patch_index = BCStructPatchIndex(bc_struct, ipatch);         \
+    Subgrid      *PV_subgrid = BCStructSubgrid(bc_struct, is);          \
+                                                                        \
+    int PV_r = SubgridRX(PV_subgrid);                                   \
+    int PV_ix = SubgridIX(PV_subgrid);                                  \
+    int PV_iy = SubgridIY(PV_subgrid);                                  \
+    int PV_iz = SubgridIZ(PV_subgrid);                                  \
+    int PV_nx = SubgridNX(PV_subgrid);                                  \
+    int PV_ny = SubgridNY(PV_subgrid);                                  \
+    int PV_nz = SubgridNZ(PV_subgrid);                                  \
+                                                                        \
+    ival = 0;                                                           \
+    CollectGrGeomPatchLoop(i, j, k, PV_gr_domain, PV_patch_index,            \
+                     PV_r, PV_ix, PV_iy, PV_iz, PV_nx, PV_ny, PV_nz,    \
+                      list);    \
+  }
+
+#define BCStructPatchLoop_Collected(ipatch, list, i, j, k, prologue, epilogue, ...) \
+  {                                                                     \
+    BCFlatList *node = list[(ipatch)]->next;                            \
+    while (node != NULL)                                                \
+    {                                                                   \
+      GrGeomOctree *PV_node = node->bc_node;                            \
+      if (node->is_single)                                              \
+      {                                                                 \
+        i = node->i;                                                    \
+        j = node->j;                                                    \
+        k = node->k;                                                    \
+        for (int PV_f = 0; PV_f < GrGeomOctreeNumFaces; PV_f++)         \
+        {                                                               \
+          if (GrGeomOctreeHasFace(PV_node, PV_f))                       \
+          {                                                             \
+            prologue;                                                   \
+            XSWITCH(PV_f, __VA_ARGS__);                                 \
+            epilogue;                                                   \
+          }                                                             \
+        }                                                               \
+      }                                                                 \
+      else                                                              \
+      {                                                                 \
+        for (k = node->izl; k < node->izu; k++) {                       \
+          for (j = node->iyl; j < node->iyu; j++) {                     \
+            for (i = node->ixl; i < node->ixu; i++) {                   \
+              for (int PV_f = 0; PV_f < GrGeomOctreeNumFaces; PV_f++) { \
+                if (GrGeomOctreeHasFace(PV_node, PV_f))                 \
+                {                                                       \
+                  prologue;                                             \
+                  XSWITCH(PV_f, __VA_ARGS__);                           \
+                  epilogue;                                             \
+                }                                                       \
+              }                                                         \
+            }                                                           \
+          }                                                             \
+        }                                                               \
+      }                                                                 \
+      node = node->next;                                                \
+    }                                                                   \
+  }
+
 #define BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is, prologue, epilogue, ...) \
   {                                                                     \
     GrGeomSolid  *PV_gr_domain = BCStructGrDomain(bc_struct);           \

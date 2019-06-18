@@ -1,3 +1,4 @@
+
 /*BHEADER*********************************************************************
  *
  *  Copyright (c) 1995-2009, Lawrence Livermore National Security,
@@ -44,6 +45,7 @@
 #include "llnltyps.h"
 #include "assert.h"
 
+#include "bc_flat.h"
 #include "bc_branching.h"
 #include "bc_richards.h"
 #include "timer.h"
@@ -278,6 +280,11 @@ void    RichardsJacobianEval(
   int ip, ipo, im, iv;
 
   int fdir2;
+  double z_mult_mean = 0.0;
+  double mult_dat_mean = 0.0;
+  double timer_start = 0.0;
+  double timer_end = 0.0;
+  FILE *fp;
 
   int diffusive;             //@LEC
 
@@ -475,6 +482,19 @@ void    RichardsJacobianEval(
   bc_struct = PFModuleInvokeType(BCPressureInvoke, bc_pressure,
                                  (problem_data, grid, gr_domain, time));
 
+  /* Collect a linked list of all our valid patch grid values.
+   * This enables us to traverse through them linearly using standard for loops
+   * rather than traversing over the octree each time
+   */
+  BCFlatList **bc_list;
+  NewBCFlatListArray(bc_list, ipatch, bc_struct);
+  CollectBCFlatLists(ipatch, bc_struct,
+  {
+    PatchType(DirichletBC, bc_list);
+    PatchType(FluxBC, bc_list);
+    PatchType(OverlandBC, bc_list);
+  });
+
   /* Get boundary pressure values for Dirichlet boundaries.   */
   /* These are needed for upstream weighting in mobilities - need boundary */
   /* values for rel perms and densities. */
@@ -495,7 +515,7 @@ void    RichardsJacobianEval(
     pp = SubvectorData(p_sub);
 
 
-    Do_DirichletBCPressureContrib(bc_struct, ipatch, is, p_sub, pp, sy_v, sz_v);
+    Do_DirichletBCPressureContrib(ipatch, bc_struct, bc_list, is, p_sub, pp, sy_v, sz_v);
   }            /* End subgrid loop */
 
   /* Calculate rel_perm and rel_perm_der */
@@ -616,7 +636,7 @@ void    RichardsJacobianEval(
              updir = (diff / dx) * x_dir_g_c - x_dir_g;
              x_coeff = dt * ffx * (1.0 / dx) * z_mult_dat[ip]
                        * PMean(pp[ip], pp[ip + 1], permxp[ip], permxp[ip + 1])
-                       \ viscosity;
+                       / viscosity;
            }),
          FLOW(Positive,
               {
@@ -650,7 +670,7 @@ void    RichardsJacobianEval(
          FLOW(Positive,
               {
                 sym_south_temp = -y_coeff * prod * y_dir_g_c;
-                south_temp = -_coeff * diff * prod_der * y_dir_g_c + sym_south_temp;
+                south_temp = -y_coeff * diff * prod_der * y_dir_g_c + sym_south_temp;
                 south_temp += (y_coeff * dy * prod_der) * y_dir_g;
 
                 sym_north_temp = y_coeff * (-prod) * y_dir_g_c;
@@ -670,7 +690,7 @@ void    RichardsJacobianEval(
       Do_RichardsGravityZ
         (
          PROLOGUE({
-             double z_mult_mean = Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]);
+             z_mult_mean = Mean(z_mult_dat[ip], z_mult_dat[ip + sz_v]);
 
              sep = (dz * z_mult_mean);
              lower_cond = pp[ip] / sep
@@ -754,8 +774,8 @@ void    RichardsJacobianEval(
     });
   }  //
 
+
   /*  Calculate correction for boundary conditions */
-  double mult_dat_mean = 0.0;
   if (symm_part)
   {
     /*  For symmetric part only, we first adjust coefficients of normal */
@@ -920,6 +940,9 @@ void    RichardsJacobianEval(
     }
   }                  /* End if symm_part */
 
+  fp = fopen("timing.csv", "a");
+  struct timeval tp;
+  TIMER(fp, tp, timer_start, timer_end, {
   ForSubgridI(is, GridSubgrids(grid))
   {
     subgrid = GridSubgrid(grid, is);
@@ -999,7 +1022,7 @@ void    RichardsJacobianEval(
     permzp = SubvectorData(permz_sub);
 
     Do_RichardsBCContrib({
-        ApplyPatch(DirichletBC,
+        ApplyPatch(DirichletBC, bc_list,
                    PROLOGUE({
                        value = bc_patch_values[ival];
                        ip = SubvectorEltIndex(p_sub, i, j, k);
@@ -1095,7 +1118,7 @@ void    RichardsJacobianEval(
                                                 * RPMean(lower_cond, upper_cond, prod, prod_val)));
                         })
                    );
-        ApplyPatch(FluxBC,
+        ApplyPatch(FluxBC, bc_list,
                    PROLOGUE({ im = SubmatrixEltIndex(J_sub, i, j, k); }),
                    EPILOGUE({
                        cp[im] += op[im];
@@ -1109,7 +1132,7 @@ void    RichardsJacobianEval(
                    FACE(Back,  { op = up; })
                    );
         ApplyPatchSubtypes(OverlandBC, public_xtra->type, {
-            ApplyPatch(no_nonlinear_jacobian,
+            ApplyPatch(no_nonlinear_jacobian, bc_list,
                        PROLOGUE({ im = SubmatrixEltIndex(J_sub, i, j, k); }),
                        EPILOGUE({
                            cp[im] += op[im];
@@ -1128,7 +1151,7 @@ void    RichardsJacobianEval(
                               }
                             })
                        );
-            ApplyPatch(not_set
+            ApplyPatch(not_set, bc_list,
                        PROLOGUE({
                            im = SubmatrixEltIndex(J_sub, i, j, k);
                          }),
@@ -1150,7 +1173,7 @@ void    RichardsJacobianEval(
                               }
                             })
                        );
-            ApplyPatch(simple
+            ApplyPatch(simple, bc_list,
                        PROLOGUE({ im = SubmatrixEltIndex(J_sub, i, j, k); }),
                        EPILOGUE({
                            cp[im] += op[im];
@@ -1172,8 +1195,51 @@ void    RichardsJacobianEval(
                               }
                             })
                        );
-            // TODO: Add overland_flow spinup and kinematic branches
-          })
+            case overland_flow:
+            {
+              if (overlandspinup == 1)
+              {
+                //BCStructPatchLoopXX(i, j, k, ival, bc_struct, ipatch, is,
+                BCStructPatchLoop_Collected(ipatch, bc_list, i, j, k,
+                {
+                  im = SubmatrixEltIndex(J_sub, i, j, k);
+                },
+                {
+                  cp[im] += op[im];
+                  op[im] = 0.0;
+                },
+                FACE(Left, {op = wp;}),
+                FACE(Right, {op = ep;}),
+                FACE(Up, {op = sop;}),
+                FACE(Down, {op = np;}),
+                FACE(Back,
+                {
+                  ip = SubvectorEltIndex(p_sub, i, j, k);
+                  vol = dx * dy * dz;
+                  if (pp[ip] >= 0.0)
+                  {
+                    cp[im] += (vol / dz) * dt * (1.0 + 0.0);
+                  }
+                }));
+              }
+              else
+              {
+                if (diffusive == 0)
+                {
+                  PFModuleInvokeType(OverlandFlowEvalInvoke, overlandflow_module,
+                  (grid, is, bc_struct, ipatch, problem_data, pressure,
+                  ke_der, kw_der, kn_der, ks_der, NULL, NULL, CALCDER));
+                }
+                else
+                {
+                  PFModuleInvokeType(OverlandFlowEvalDiffInvoke, overlandflow_module_diff,
+                  (grid, is, bc_struct, ipatch, problem_data, pressure,
+                  ke_der, kw_der, kn_der, ks_der,
+                  kens_der, kwns_der, knns_der, ksns_der, NULL, NULL, CALCDER));
+                }
+              }
+            }
+        });
       });
         /*
 
@@ -1189,6 +1255,8 @@ void    RichardsJacobianEval(
       });
     */
   }
+    });
+  fclose(fp);
 
   PFModuleInvokeType(RichardsBCInternalInvoke, bc_internal, (problem, problem_data, NULL, J, time,
                                                              pressure, CALCDER));
@@ -1525,6 +1593,9 @@ void    RichardsJacobianEval(
   /*-----------------------------------------------------------------------
    * Free temp vectors
    *-----------------------------------------------------------------------*/
+
+
+  FreeBCFlatListArray(bc_list, ipatch, bc_struct);
 
   FreeBCStruct(bc_struct);
 
