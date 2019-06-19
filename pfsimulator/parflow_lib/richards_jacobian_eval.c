@@ -387,6 +387,8 @@ void    RichardsJacobianEval(
   // parallel.
   ovlnd_flag = 1;  // determines whether or not to set up data structs for overland flow contribution
 
+  int xpp = ;
+
 
   /* Initialize matrix values to zero. */
   InitMatrix(J, 0.0);

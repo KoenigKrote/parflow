@@ -52,14 +52,15 @@
       {                                                                 \
         case DirichletBC:                                               \
         {                                                               \
-          BCStructPatchLoop_Collected(patch_idx, list, i, j, k, \
+          BCStructPatchLoop_Collected(patch_idx, list, i, j, k,         \
           {                                                             \
             ip = SubvectorEltIndex(pressure_subvector, i, j, k);        \
             value = bc_patch_values[ival];                              \
             pressure_data[ip + fdir[0] * 1                              \
-            + fdir[1] * y_offset                                        \
-            + fdir[2] * z_offset] = value;                              \
-          },{});                                                        \
+                          + fdir[1] * y_offset                          \
+                          + fdir[2] * z_offset] = value;                \
+          },                                                            \
+          NO_EPILOGUE);                                                 \
         }                                                               \
       }                                                                 \
     }                                                                   \
